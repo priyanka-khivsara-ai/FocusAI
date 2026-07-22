@@ -28,11 +28,12 @@ import collections
 # Rolling window for temporal smoothing (last 50 frames ~ 5 seconds at 10fps)
 history_window = collections.deque(maxlen=50)
 
-def calculate_final_score(avg_ear, pitch, yaw):
+def calculate_final_score(avg_ear, pitch, yaw, gaze_distracted=False):
     frame_score = 100
     if avg_ear < 0.22: frame_score -= 50
     if abs(yaw) > 25: frame_score -= 40
     if abs(pitch) > 20: frame_score -= 30
+    if gaze_distracted: frame_score -= 40 # Pupil tracking
     
     frame_score = max(0, frame_score)
     history_window.append(frame_score)
@@ -54,6 +55,36 @@ def calculate_ear(eye_landmarks):
 # MediaPipe Eye Landmark Indices
 RIGHT_EYE_INDICES = [33, 160, 158, 133, 153, 144]
 LEFT_EYE_INDICES = [362, 385, 387, 263, 373, 380]
+
+def get_eye_center(eye_landmarks):
+    # Index 0 and 3 are the outer and inner corners. These are anchored to the skull
+    # and DO NOT move when you look up or down, providing a perfectly rigid center!
+    x = (eye_landmarks[0].x + eye_landmarks[3].x) / 2.0
+    y = (eye_landmarks[0].y + eye_landmarks[3].y) / 2.0
+    return x, y
+
+def get_eye_dimensions(eye_landmarks):
+    xs = [pt.x for pt in eye_landmarks]
+    ys = [pt.y for pt in eye_landmarks]
+    width = max(xs) - min(xs)
+    height = max(ys) - min(ys)
+    return width, height
+
+def detect_gaze(iris, eye_landmarks):
+    center_x, center_y = get_eye_center(eye_landmarks)
+    
+    # We use WIDTH to normalize BOTH X and Y because the eye width is a rigid bone structure.
+    # The eye height expands/contracts when looking up/down, which would ruin the math!
+    width = abs(eye_landmarks[3].x - eye_landmarks[0].x)
+    if width == 0: return 0, 0
+        
+    dx = iris.x - center_x
+    dy = iris.y - center_y
+    
+    ratio_x = dx / width
+    ratio_y = dy / width
+    
+    return ratio_x, ratio_y
 
 
 # Initialize the backend application
@@ -88,7 +119,30 @@ async def student_endpoint(websocket: WebSocket):
                 # 2. Calculate the average Eye Aspect Ratio (EAR)
                 avg_ear = (calculate_ear(right_eye) + calculate_ear(left_eye)) / 2.0
                 
-                # 3. Get Head Pose (Pitch, Yaw, Roll)
+                # 3. Calculate 4-Directional Pupil Gaze
+                gaze_distracted = False
+                if data.get('irises'):
+                    iris_a = FakePoint(data['irises'][0])
+                    iris_b = FakePoint(data['irises'][1])
+                    
+                    # Bulletproof Iris Assignment: Match the iris to the closest eye
+                    right_eye_center_x, _ = get_eye_center(right_eye)
+                    if abs(iris_a.x - right_eye_center_x) < abs(iris_b.x - right_eye_center_x):
+                        right_iris, left_iris = iris_a, iris_b
+                    else:
+                        right_iris, left_iris = iris_b, iris_a
+                    
+                    r_rx, r_ry = detect_gaze(right_iris, right_eye)
+                    l_rx, l_ry = detect_gaze(left_iris, left_eye)
+                    
+                    avg_rx = (r_rx + l_rx) / 2.0
+                    avg_ry = (r_ry + l_ry) / 2.0
+                    
+                    # Threshold: 22% horizontally, 15% vertically (since the eye is shorter than it is wide)
+                    if abs(avg_rx) > 0.22 or abs(avg_ry) > 0.15:
+                        gaze_distracted = True
+                
+                # 4. Get Head Pose (Pitch, Yaw, Roll)
                 pitch, yaw, roll = 0, 0, 0
                 if data.get('matrix'):
                     # Convert the flat 16-element array back to a 4x4 matrix
@@ -96,13 +150,15 @@ async def student_endpoint(websocket: WebSocket):
                     matrix = np.array(flat_matrix).reshape(4, 4)
                     pitch, yaw, roll = calculate_head_pose(matrix)
                 
-                # 4. Attention Logic
-                final_score = calculate_final_score(avg_ear, pitch, yaw)
+                # 5. Attention Logic
+                final_score = calculate_final_score(avg_ear, pitch, yaw, gaze_distracted)
                 
                 if avg_ear < 0.22:
-                    status = "Eyes Closed"
+                    status = "Blinking / Eyes Closed"
                 elif abs(yaw) > 25 or abs(pitch) > 20: 
-                    status = "Distracted"
+                    status = "Distracted" # Head turned away
+                elif gaze_distracted:
+                    status = "Distracted" # Looking away with pupils
                 else:
                     status = "Attentive"
                     
