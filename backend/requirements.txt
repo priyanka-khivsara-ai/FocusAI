@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+websockets
+opencv-python
+mediapipe
+SQLAlchemy
+psycopg2-binary
+alembic
+pydantic
