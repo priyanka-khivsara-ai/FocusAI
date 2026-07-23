@@ -4,6 +4,8 @@ from fastapi import FastAPI, WebSocket
 import uvicorn
 import numpy as np
 import math
+import os
+import time
 
 # Helper to extract Pitch, Yaw, and Roll from transformation matrix
 def calculate_head_pose(transformation_matrix):
@@ -94,11 +96,12 @@ app = FastAPI(title="Attention Detection Backend")
 async def root():
     return {"message": "FocusAI Backend is running securely."}
 
-# WebSocket endpoint to receive video frames from the student's browser
-@app.websocket("/ws/student")
-async def student_endpoint(websocket: WebSocket):
+# WebSocket endpoint to receive video frames from the user's browser
+@app.websocket("/ws/user")
+async def user_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("Student connected securely via WebSocket.")
+    print("User connected securely via WebSocket.")
+    
     try:
         while True:
             # Receive the JSON Feature Vectors from the Edge AI Browser
@@ -166,11 +169,12 @@ async def student_endpoint(websocket: WebSocket):
                     status = "Attentive"
                     
                 attention_score = f"{status} | Overall Focus: {final_score}%"
+                score = final_score
             
             # Send the attention score back to the frontend
             await websocket.send_json({"attention_score": attention_score})
     except Exception as e:
-        print(f"Student disconnected: {e}")
+        print(f"User disconnected: {e}")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

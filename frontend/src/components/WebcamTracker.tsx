@@ -42,7 +42,7 @@ export default function WebcamTracker() {
       console.error = originalError; // Restore normal errors
 
       setStatus("Connecting to Backend Server...");
-      ws = new WebSocket("ws://localhost:8000/ws/student");
+      ws = new WebSocket("ws://localhost:8000/ws/user");
       
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);

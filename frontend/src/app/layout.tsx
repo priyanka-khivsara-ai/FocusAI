@@ -2,8 +2,8 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "FocusAI - Smart Attention Tracker",
-  description: "Privacy-first Edge AI student monitoring.",
+  title: "FocusAI | Edge Node",
+  description: "Privacy-first Edge AI user monitoring.",
 };
 
 export default function RootLayout({
