@@ -105,7 +105,10 @@ async def student_endpoint(websocket: WebSocket):
             data = await websocket.receive_json()
             attention_score = "No Face Detected"
             
-            if data and "right_eye" in data:
+            if data and data.get("no_face"):
+                score = int(sum(history_window) / len(history_window)) if history_window else 0
+                attention_score = f"User Not Found | Overall Focus: {score}%"
+            elif data and "right_eye" in data:
                 # 1. Reconstruct landmarks from the JSON payload
                 class FakePoint:
                     def __init__(self, d):

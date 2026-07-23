@@ -86,21 +86,25 @@ export default function WebcamTracker() {
         try {
           const results = faceLandmarker.detectForVideo(videoRef.current, performance.now());
           
-          if (results.faceLandmarks.length > 0 && ws && ws.readyState === WebSocket.OPEN) {
-            // Privacy Feature: Send ONLY numerical feature vectors to backend, NOT video!
-            // We extract the 12 eye landmarks needed for EAR, the 4x4 pose matrix, and the 2 Iris centers.
-            const rightEyeIndices = [33, 160, 158, 133, 153, 144];
-            const leftEyeIndices = [362, 385, 387, 263, 373, 380];
-            
-            const rawLandmarks = results.faceLandmarks[0];
-            const payload = {
-              right_eye: rightEyeIndices.map(i => rawLandmarks[i]),
-              left_eye: leftEyeIndices.map(i => rawLandmarks[i]),
-              irises: rawLandmarks.length > 470 ? [rawLandmarks[468], rawLandmarks[473]] : null,
-              matrix: results.facialTransformationMatrixes?.[0] ? Array.from(results.facialTransformationMatrixes[0].data) : null
-            };
-            
-            ws.send(JSON.stringify(payload));
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            if (results.faceLandmarks.length > 0) {
+              // Privacy Feature: Send ONLY numerical feature vectors to backend, NOT video!
+              // We extract the 12 eye landmarks needed for EAR, the 4x4 pose matrix, and the 2 Iris centers.
+              const rightEyeIndices = [33, 160, 158, 133, 153, 144];
+              const leftEyeIndices = [362, 385, 387, 263, 373, 380];
+              
+              const rawLandmarks = results.faceLandmarks[0];
+              const payload = {
+                right_eye: rightEyeIndices.map(i => rawLandmarks[i]),
+                left_eye: leftEyeIndices.map(i => rawLandmarks[i]),
+                irises: rawLandmarks.length > 470 ? [rawLandmarks[468], rawLandmarks[473]] : null,
+                matrix: results.facialTransformationMatrixes?.[0] ? Array.from(results.facialTransformationMatrixes[0].data) : null
+              };
+              
+              ws.send(JSON.stringify(payload));
+            } else {
+              ws.send(JSON.stringify({ no_face: true }));
+            }
           }
         } catch (error) {
            console.warn("MediaPipe processing skipped a frame", error);
