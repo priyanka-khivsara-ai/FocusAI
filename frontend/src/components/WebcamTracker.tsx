@@ -3,10 +3,53 @@
 import React, { useEffect, useRef, useState } from "react";
 import { FilesetResolver, FaceLandmarker } from "@mediapipe/tasks-vision";
 
+function FeatureRow({
+  label,
+  value,
+  highlight = false,
+  warn = false,
+}: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+  warn?: boolean;
+}) {
+  return (
+    <div className="flex flex-col bg-white rounded-lg border border-slate-100 px-3 py-2">
+      <span className="text-[10px] uppercase tracking-wider text-slate-400">{label}</span>
+      <span
+        className={
+          "font-bold " +
+          (warn ? "text-amber-600" : highlight ? "text-indigo-600" : "text-slate-700")
+        }
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
 export default function WebcamTracker() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState("Initializing Edge AI...");
   const [score, setScore] = useState<string>("--");
+
+  // Extended facial-feature telemetry coming back from the backend
+  type Features = {
+    eyebrows: string;
+    lip_movement: boolean;
+    yawning: boolean;
+    smile: string;
+    facial_tension: boolean;
+    tension_score: number;
+    mood: string;
+    emotion_changed_at?: number;
+    previous_mood?: string;
+  };
+  type EmotionEvent = { emotion: string; previous_emotion: string | null; timestamp: number };
+
+  const [features, setFeatures] = useState<Features | null>(null);
+  const [emotionHistory, setEmotionHistory] = useState<EmotionEvent[]>([]);
 
   useEffect(() => {
     let faceLandmarker: FaceLandmarker;
@@ -48,6 +91,12 @@ export default function WebcamTracker() {
         const data = JSON.parse(event.data);
         if (data.attention_score) {
           setScore(data.attention_score);
+        }
+        if (data.features) {
+          setFeatures(data.features);
+        }
+        if (data.emotion_history) {
+          setEmotionHistory(data.emotion_history);
         }
       };
 
@@ -92,11 +141,22 @@ export default function WebcamTracker() {
               // We extract the 12 eye landmarks needed for EAR, the 4x4 pose matrix, and the 2 Iris centers.
               const rightEyeIndices = [33, 160, 158, 133, 153, 144];
               const leftEyeIndices = [362, 385, 387, 263, 373, 380];
+
+              // Eyebrow indices, ordered outer -> inner (last point = closest to nose bridge,
+              // matching what calculate_eyebrow_position / detect_facial_tension expect on the backend)
+              const leftEyebrowIndices = [70, 63, 105, 66, 107];
+              const rightEyebrowIndices = [336, 296, 334, 293, 300];
+
+              // Mouth indices, ordered [left_corner, right_corner, top_outer, bottom_outer, top_inner, bottom_inner]
+              const mouthIndices = [61, 291, 0, 17, 13, 14];
               
               const rawLandmarks = results.faceLandmarks[0];
               const payload = {
                 right_eye: rightEyeIndices.map(i => rawLandmarks[i]),
                 left_eye: leftEyeIndices.map(i => rawLandmarks[i]),
+                left_eyebrow: leftEyebrowIndices.map(i => rawLandmarks[i]),
+                right_eyebrow: rightEyebrowIndices.map(i => rawLandmarks[i]),
+                mouth: mouthIndices.map(i => rawLandmarks[i]),
                 irises: rawLandmarks.length > 470 ? [rawLandmarks[468], rawLandmarks[473]] : null,
                 matrix: results.facialTransformationMatrixes?.[0] ? Array.from(results.facialTransformationMatrixes[0].data) : null
               };
@@ -155,6 +215,41 @@ export default function WebcamTracker() {
         <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Live AI Telemetry (Backend Computed)</p>
         <p className="text-3xl font-black text-slate-800">{score}</p>
       </div>
+
+      {features && (
+        <div className="w-full bg-slate-50 rounded-xl p-6 border border-slate-200 mt-4">
+          <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Facial Feature Capture</p>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <FeatureRow label="Mood" value={features.mood} highlight />
+            <FeatureRow label="Eyebrows" value={features.eyebrows} />
+            <FeatureRow label="Smile" value={features.smile} />
+            <FeatureRow label="Lip Movement" value={features.lip_movement ? "Active" : "Still"} />
+            <FeatureRow label="Yawning" value={features.yawning ? "Yes" : "No"} warn={features.yawning} />
+            <FeatureRow
+              label="Facial Tension"
+              value={features.facial_tension ? `Tense (${features.tension_score})` : "Relaxed"}
+              warn={features.facial_tension}
+            />
+          </div>
+        </div>
+      )}
+
+      {emotionHistory.length > 0 && (
+        <div className="w-full bg-slate-50 rounded-xl p-6 border border-slate-200 mt-4">
+          <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Emotion Timeline</p>
+          <ul className="space-y-1 text-xs font-mono text-slate-600 max-h-40 overflow-y-auto">
+            {[...emotionHistory].reverse().map((e, idx) => (
+              <li key={idx} className="flex justify-between border-b border-slate-100 py-1">
+                <span>
+                  {e.previous_emotion ? `${e.previous_emotion} → ` : ""}
+                  <span className="font-bold text-slate-800">{e.emotion}</span>
+                </span>
+                <span>{new Date(e.timestamp * 1000).toLocaleTimeString()}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       
       <p className="mt-4 text-xs text-slate-400 text-center">
         Video never leaves your device. Only highly-compressed feature vectors are streamed to the secure analysis server.
