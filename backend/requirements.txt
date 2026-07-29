@@ -4,3 +4,6 @@ websockets
 numpy
 supabase
 python-dotenv
+sqlalchemy
+asyncpg
+greenlet

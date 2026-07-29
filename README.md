@@ -1,109 +1,62 @@
 # FocusAI: Cognitive Telemetry Engine 🧠
 
-A real-time, privacy-first cognitive state monitoring and behavioral analytics platform. FocusAI leverages client-side computer vision to extract high-dimensional biometric telemetry and streams it to a scalable modular monolith backend. Using a hybrid ML and rule-based architecture alongside an Agentic AI layer, the system generates continuous behavioral insights and dynamic analytics.
+FocusAI is an advanced **Agentic AI** platform designed for high-frequency, real-time extraction of human cognitive states using **Deep Learning (DL)** and **Computer Vision**. By deploying a highly optimized Edge AI vision pipeline directly in the browser, the system transforms raw video into a continuous stream of lightweight, multi-modal biometric telemetry (Eye Aspect Ratios, 3D Pose, Facial Tension, and Emotion Vectors). 
+
+This telemetry is asynchronously streamed to a fast Python backend and permanently persisted in a **TimescaleDB** time-series database. The stored cognitive telemetry acts as the foundation for **Retrieval-Augmented Generation (RAG)**, allowing LLM Agents to query the database, analyze human engagement, and generate powerful natural-language insights over historical sessions.
 
 ![FocusAI Architecture](https://img.shields.io/badge/Architecture-Edge_AI-blue)
-![React](https://img.shields.io/badge/Frontend-React%20%7C%20TypeScript-black)
-![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688)
-![Database](https://img.shields.io/badge/Database-TimescaleDB%20%7C%20PostgreSQL-orange)
+![Deep Learning](https://img.shields.io/badge/AI-Deep_Learning_%28DL%29-orange)
+![PostgreSQL](https://img.shields.io/badge/Database-TimescaleDB-009688)
 
-## 🚀 Core Features
+## 🚀 Enterprise Architecture
 
-- **Edge AI Vision Pipeline:** Deploys optimized PyTorch and ONNX models via WebAssembly for sub-50ms client-side inference, extracting 3D facial coordinates without transmitting raw video.
-- **Multi-Modal Behavioral Engine:** Fuses 3D facial landmarks, head pose matrices, and Facial Action Units (FACS) across sliding time-windows to accurately predict attention, classify emotions, and track cognitive load.
-- **Agentic AI Reasoning Layer:** Utilizes LangGraph and RAG (Retrieval-Augmented Generation) to query high-frequency time-series telemetry, generating automated behavioral insights and engagement analytics.
-- **Real-Time Event Engine:** Detects complex semantic events (e.g., blink bursts, yawning, distraction) and ensures continuous presence verification.
-- **Enterprise-Grade Infrastructure:** Designed as a highly scalable modular monolith utilizing FastAPI, Redis, PostgreSQL, and TimescaleDB, all containerized via Docker Compose.
+* **Edge AI Vision Pipeline (WASM):** 100% of the Deep Learning Face Mesh processing happens on the client GPU/CPU via WebAssembly. The raw video is instantly discarded, and only mathematically compressed 3D feature vectors are streamed to the backend.
+* **Multi-Modal Behavioral Engine:** The Python backend parses the raw 3D vectors to calculate precise true Pitch/Yaw/Roll, Gaze direction, Lip Compression, Brow Furrowing (Facial Tension), and Eye Aspect Ratio (EAR) for Micro-Sleep detection.
+* **Agentic AI & RAG Layer (WIP):** Cognitive state telemetry is persisted to a time-series database. Specialized Autonomous Agents use RAG and Information Retrieval to query this historical data, generating human-readable behavioral insights and automated anomaly reports.
 
----
+## 🛠️ Technology Stack
 
-## 🛠️ Final Tech Stack
-
-| Layer | Technology |
-| :--- | :--- |
-| **Frontend** | React + TypeScript + Tailwind CSS |
-| **Real-time Communication** | Secure WebSocket |
-| **Backend** | FastAPI (Modular Monolith) |
-| **CV Framework** | Google MediaPipe (Face Mesh, Iris, Pose) |
-| **ML Framework** | PyTorch + ONNX Runtime |
-| **Emotion Model** | Fine-tuned CNN/ViT + Temporal Model |
-| **Attention Engine** | Multi-modal Rule + ML Hybrid |
-| **Agent Framework** | LangGraph / PydanticAI |
-| **Structured Database** | PostgreSQL |
-| **Time-Series Database** | TimescaleDB Extension |
-| **Cache & Auth** | Redis, JWT |
-| **Deployment** | Docker Compose |
-
----
-
-## 🏗️ High Level Design (Production HLD)
-
-```mermaid
-graph TD
-    A[Webcam / React UI] -->|Frames| B[MediaPipe WASM Pipeline]
-    B -->|Face/Iris/Pose Extraction| C[Feature Compression]
-    C -->|Numeric Vectors <1KB/s| D(Secure WebSocket)
-    
-    subgraph FastAPI Modular Monolith
-        D --> E[Liveness & Face Validation]
-        E --> F[Temporal Feature Fusion]
-        F --> G[Attention & Emotion Engine]
-        G --> H[Semantic Event Engine]
-        H --> I[LangGraph Agent Layer]
-    end
-    
-    I --> J[(PostgreSQL + TimescaleDB)]
-    J --> K[Analytics Dashboard]
-```
-
----
-
-## 🧠 Low Level Processing Pipeline
-
-1. **Feature Extraction Engine:** Calculates Eye Aspect Ratio (EAR), Mouth Aspect Ratio (MAR), Iris Gaze displacement, and Head Pose (Pitch, Roll, Yaw).
-2. **Temporal Buffer:** Applies a 5-second sliding window to track motion history, smooth feature jitter, and detect moving statistical trends.
-3. **Attention Scoring Model:** A weighted fusion model tracking Eye Gaze (20%), Head Pose (15%), Posture (15%), EAR (10%), and Facial Expressions (10%).
-4. **Agent Layer:** Routes parsed data through specialized LLM agents (Attention Agent, Emotion Agent, Engagement Agent) to build explainable reports.
-
----
-
-## 🗄️ Database Architecture
-
-The system utilizes a single PostgreSQL server with the **TimescaleDB** extension enabled, conceptually split into relational data and high-frequency hypertables.
-
-### Relational Data (PostgreSQL)
-- `users`, `sessions`, `roles`, `permissions`, `reports`
-
-### High-Frequency Telemetry (TimescaleDB)
-- `attention_timeline`: Continuous focus scoring.
-- `emotion_timeline`: Real-time cognitive states.
-- `facial_metrics`: Granular tracking of EAR, MAR, blink_rate, smile_type, gaze_x/y, head_pitch.
-- `body_metrics`: Posture, shoulder_angle, hand_position.
-- `behavioral_events`: Discrete state changes (e.g., `LOOK_AWAY`, `BLINK_BURST`, `YAWN`).
-
----
+* **Edge Node:** Next.js 15, React, TypeScript, WebAssembly, MediaPipe
+* **Telemetry Server:** Python, FastAPI, Uvicorn, NumPy
+* **Data Persistence:** PostgreSQL, TimescaleDB, SQLAlchemy, asyncpg
 
 ## 💻 Getting Started
 
 ### Prerequisites
-- Docker & Docker Compose
-- Node.js (v18+)
+* Node.js (v18+)
+* Python 3.9+
+* Docker Desktop (or OrbStack)
 
-### 1. Start the Backend Infrastructure
-The backend and databases are fully containerized.
+### 1. Boot up the TimescaleDB Database (Docker)
+The system requires TimescaleDB to handle the high-frequency time-series telemetry.
 ```bash
-# Start FastAPI, PostgreSQL, TimescaleDB, and Redis
-docker-compose up -d --build
+docker-compose up -d
 ```
-*The API will be available at `http://localhost:8000`.*
+*Note: You can connect a GUI client like DBeaver using:*
+`Host: localhost` | `Port: 5432` | `DB: focus_db` | `User: focus_user` | `Pass: focus_password`
 
-### 2. Start the Frontend Application
+### 2. Start the Telemetry Backend
+Open a terminal and start the async Python server:
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+*The backend will run on `ws://localhost:8000`.*
+
+### 3. Start the Edge Node (Frontend)
+Open a new terminal to start the Next.js UI:
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 *The dashboard will be available at `http://localhost:3000`.*
+
+## 🧠 The Mathematics of the Gaze Pipeline
+Standard gaze tracking algorithms suffer from immense jitter because they rely on dynamic eyelid landmarks. FocusAI solves this by anchoring a rigid mathematical bounding box directly to the tear duct and outer eye corner (which are physically anchored to the skull). The precise X and Y coordinates of the Iris are extracted, and displacement is normalized perfectly against the absolute width of the eye, creating a flawless `[-0.5 to 0.5]` detection grid that operates entirely independently of facial depth or camera angle.
 
 ---
 
