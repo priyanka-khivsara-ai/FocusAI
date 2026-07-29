@@ -58,6 +58,7 @@ npm run dev
 ## 🧠 The Mathematics of the Gaze Pipeline
 Standard gaze tracking algorithms suffer from immense jitter because they rely on dynamic eyelid landmarks. FocusAI solves this by anchoring a rigid mathematical bounding box directly to the tear duct and outer eye corner (which are physically anchored to the skull). The precise X and Y coordinates of the Iris are extracted, and displacement is normalized perfectly against the absolute width of the eye, creating a flawless `[-0.5 to 0.5]` detection grid that operates entirely independently of facial depth or camera angle.
 
+
 ---
 
 ## 📄 License

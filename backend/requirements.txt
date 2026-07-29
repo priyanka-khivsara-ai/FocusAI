@@ -7,3 +7,9 @@ python-dotenv
 sqlalchemy
 asyncpg
 greenlet
+langchain
+langchain-openai
+langgraph
+langchain-groq
+python-multipart
+pandas

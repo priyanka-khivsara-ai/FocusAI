@@ -85,19 +85,11 @@ export default function WebcamTracker() {
       console.error = originalError; // Restore normal errors
 
       setStatus("Connecting to Backend Server...");
-      ws = new WebSocket("ws://localhost:8000/ws/user");
+      const savedUserId = localStorage.getItem("focusai_user_id") || "user_1";
+      ws = new WebSocket(`ws://localhost:8000/ws/user/${savedUserId}`);
       
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.attention_score) {
-          setScore(data.attention_score);
-        }
-        if (data.features) {
-          setFeatures(data.features);
-        }
-        if (data.emotion_history) {
-          setEmotionHistory(data.emotion_history);
-        }
+        // We receive data from backend but WE DO NOT SHOW IT in the User Portal for privacy!
       };
 
       ws.onopen = async () => {
@@ -211,45 +203,10 @@ export default function WebcamTracker() {
         )}
       </div>
 
-      <div className="w-full bg-slate-50 rounded-xl p-6 border border-slate-200">
-        <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Live AI Telemetry (Backend Computed)</p>
-        <p className="text-3xl font-black text-slate-800">{score}</p>
+      <div className="w-full bg-slate-50 rounded-xl p-6 border border-slate-200 flex items-center justify-center gap-3">
+        <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
+        <p className="text-sm font-bold text-slate-700 uppercase tracking-wider">Secure Telemetry Active</p>
       </div>
-
-      {features && (
-        <div className="w-full bg-slate-50 rounded-xl p-6 border border-slate-200 mt-4">
-          <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Facial Feature Capture</p>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <FeatureRow label="Mood" value={features.mood} highlight />
-            <FeatureRow label="Eyebrows" value={features.eyebrows} />
-            <FeatureRow label="Smile" value={features.smile} />
-            <FeatureRow label="Lip Movement" value={features.lip_movement ? "Active" : "Still"} />
-            <FeatureRow label="Yawning" value={features.yawning ? "Yes" : "No"} warn={features.yawning} />
-            <FeatureRow
-              label="Facial Tension"
-              value={features.facial_tension ? `Tense (${features.tension_score})` : "Relaxed"}
-              warn={features.facial_tension}
-            />
-          </div>
-        </div>
-      )}
-
-      {emotionHistory.length > 0 && (
-        <div className="w-full bg-slate-50 rounded-xl p-6 border border-slate-200 mt-4">
-          <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Emotion Timeline</p>
-          <ul className="space-y-1 text-xs font-mono text-slate-600 max-h-40 overflow-y-auto">
-            {[...emotionHistory].reverse().map((e, idx) => (
-              <li key={idx} className="flex justify-between border-b border-slate-100 py-1">
-                <span>
-                  {e.previous_emotion ? `${e.previous_emotion} → ` : ""}
-                  <span className="font-bold text-slate-800">{e.emotion}</span>
-                </span>
-                <span>{new Date(e.timestamp * 1000).toLocaleTimeString()}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       
       <p className="mt-4 text-xs text-slate-400 text-center">
         Video never leaves your device. Only highly-compressed feature vectors are streamed to the secure analysis server.
