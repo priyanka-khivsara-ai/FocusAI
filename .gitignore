@@ -13,6 +13,11 @@ frontend/.env.local
 frontend/.env.development.local
 frontend/.env.test.local
 frontend/.env.production.local
+admin-portal/node_modules/
+admin-portal/.next/
+admin-portal/out/
+admin-portal/build/
+admin-portal/.env.local
 
 # OS
 .DS_Store
