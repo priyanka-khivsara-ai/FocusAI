@@ -10,6 +10,9 @@ from database import SessionLocal
 from models import TelemetryRecord
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
+from pydantic import BaseModel
+from langchain_core.messages import HumanMessage
+from agent import get_agent
 
 # Helper to extract Pitch, Yaw, and Roll from transformation matrix
 def calculate_head_pose(transformation_matrix):
@@ -415,6 +418,24 @@ async def get_telemetry():
     except Exception as e:
         print(f"Error fetching telemetry: {e}")
         return []
+
+class ChatRequest(BaseModel):
+    message: str
+
+@app.post("/api/chat")
+async def chat_endpoint(req: ChatRequest):
+    try:
+        agent = get_agent()
+        messages = [HumanMessage(content=req.message)]
+        
+        # Run the LangGraph state machine with the user's prompt
+        result = await agent.ainvoke({"messages": messages})
+        
+        # The agent's final response is the last message in the state
+        final_message = result["messages"][-1].content
+        return {"response": final_message}
+    except Exception as e:
+        return {"response": f"AI Error: Make sure your GROQ_API_KEY is valid! Details: {str(e)}"}
 
 @app.get("/")
 async def root():
