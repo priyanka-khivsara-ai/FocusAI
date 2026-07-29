@@ -10,16 +10,21 @@ from database import SessionLocal
 from models import TelemetryRecord
 
 @tool
-async def query_recent_telemetry(limit: int = 50) -> str:
+async def query_recent_telemetry(user_id: str = "all", limit: int = 50) -> str:
     """
     Queries the TimescaleDB database for the most recent cognitive telemetry records.
-    Returns a chronological list of the user's focus score, facial tension, and mood over time.
+    Returns a chronological list of focus scores, facial tension, and mood over time.
     """
     try:
         async with SessionLocal() as db:
-            result = await db.execute(
-                select(TelemetryRecord).order_by(TelemetryRecord.timestamp.desc()).limit(limit)
-            )
+            if user_id == "all":
+                result = await db.execute(
+                    select(TelemetryRecord).order_by(TelemetryRecord.timestamp.desc()).limit(limit)
+                )
+            else:
+                result = await db.execute(
+                    select(TelemetryRecord).where(TelemetryRecord.user_id == user_id).order_by(TelemetryRecord.timestamp.desc()).limit(limit)
+                )
             records = result.scalars().all()
             
             if not records:
@@ -29,7 +34,7 @@ async def query_recent_telemetry(limit: int = 50) -> str:
             output = []
             for r in reversed(records):
                 time_str = r.timestamp.strftime("%H:%M:%S")
-                output.append(f"[{time_str}] Focus Score: {r.focus_score}/100 | Mood: {r.mood} | Tense: {r.is_tense}")
+                output.append(f"[{time_str}] User: {r.user_id} | Focus Score: {r.focus_score}/100 | Mood: {r.mood} | Tense: {r.is_tense}")
             
             return "\n".join(output)
     except Exception as e:

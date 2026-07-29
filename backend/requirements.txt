@@ -11,3 +11,5 @@ langchain
 langchain-openai
 langgraph
 langchain-groq
+python-multipart
+pandas
