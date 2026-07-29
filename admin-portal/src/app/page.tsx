@@ -5,6 +5,11 @@ import ReactECharts from "echarts-for-react";
 export default function AdminDashboard() {
   const [data, setData] = useState([]);
   
+  // Chat Agent State
+  const [query, setQuery] = useState("");
+  const [chatLog, setChatLog] = useState<{role: string, content: string}[]>([]);
+  const [loading, setLoading] = useState(false);
+  
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -20,6 +25,30 @@ export default function AdminDashboard() {
     const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleChatSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+    
+    const userMessage = query;
+    setChatLog(prev => [...prev, { role: "user", content: userMessage }]);
+    setQuery("");
+    setLoading(true);
+    
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMessage })
+      });
+      const json = await res.json();
+      setChatLog(prev => [...prev, { role: "agent", content: json.response }]);
+    } catch (err) {
+      setChatLog(prev => [...prev, { role: "agent", content: "Error: Could not connect to AI Agent." }]);
+    }
+    
+    setLoading(false);
+  };
 
   const times = data.map((d: any) => new Date(d.timestamp).toLocaleTimeString());
   const scores = data.map((d: any) => d.focus_score);
@@ -121,6 +150,47 @@ export default function AdminDashboard() {
               <p className="text-sm text-slate-500 mb-6">Breakdown of cognitive emotional states.</p>
               <ReactECharts option={moodOption} style={{ height: "250px", width: "100%" }} />
             </div>
+        </div>
+
+        {/* Autonomous Agent Chat Interface */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mt-8">
+           <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2">
+             <span className="w-4 h-4 rounded-full bg-blue-500"></span>
+             Agentic AI Analyst (RAG)
+           </h2>
+           <p className="text-sm text-slate-500 mb-6">Ask the Autonomous Agent questions about the TimescaleDB telemetry data.</p>
+           
+           <div className="bg-slate-50 rounded-xl p-4 h-64 overflow-y-auto mb-4 border border-slate-100 flex flex-col gap-3">
+              {chatLog.length === 0 ? (
+                <div className="text-slate-400 text-sm text-center mt-auto mb-auto">Try asking: "Did the user get distracted in the last 5 minutes?"</div>
+              ) : (
+                chatLog.map((msg, idx) => (
+                  <div key={idx} className={`p-3 rounded-lg max-w-[80%] text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white self-end rounded-br-none' : 'bg-white text-slate-800 border border-slate-200 self-start rounded-bl-none shadow-sm'}`}>
+                    <span className="font-bold block mb-1 text-xs opacity-75">{msg.role === 'user' ? 'Admin' : 'AI Agent'}</span>
+                    {msg.content}
+                  </div>
+                ))
+              )}
+              {loading && <div className="text-slate-400 text-sm animate-pulse">Agent is thinking and querying TimescaleDB...</div>}
+           </div>
+
+           <form onSubmit={handleChatSubmit} className="flex gap-2">
+             <input
+               type="text"
+               value={query}
+               onChange={(e) => setQuery(e.target.value)}
+               placeholder="Ask the AI about the cognitive data..."
+               className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+               disabled={loading}
+             />
+             <button
+               type="submit"
+               disabled={loading}
+               className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50"
+             >
+               Send
+             </button>
+           </form>
         </div>
       </div>
     </div>
