@@ -6,6 +6,10 @@ import numpy as np
 import math
 import os
 import time
+from database import SessionLocal
+from models import TelemetryRecord
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 # Helper to extract Pitch, Yaw, and Roll from transformation matrix
 def calculate_head_pose(transformation_matrix):
@@ -379,6 +383,39 @@ def reset_no_face_state():
 # Initialize the backend application
 app = FastAPI(title="Attention Detection Backend")
 
+# Allow the Next.js frontend to make HTTP requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/api/telemetry")
+async def get_telemetry():
+    try:
+        async with SessionLocal() as db:
+            result = await db.execute(
+                select(TelemetryRecord).order_by(TelemetryRecord.timestamp.desc()).limit(100)
+            )
+            records = result.scalars().all()
+            
+            # Reverse so the oldest is first, making it perfect for ECharts timeline
+            return [
+                {
+                    "timestamp": r.timestamp.isoformat(),
+                    "focus_score": r.focus_score,
+                    "status": r.status,
+                    "mood": r.mood,
+                    "is_tense": r.is_tense,
+                }
+                for r in reversed(records)
+            ]
+    except Exception as e:
+        print(f"Error fetching telemetry: {e}")
+        return []
+
 @app.get("/")
 async def root():
     return {"message": "FocusAI Backend is running securely."}
@@ -503,6 +540,21 @@ async def user_endpoint(websocket: WebSocket):
                     extra_features["emotion_changed_at"] = emotion_change["timestamp"]
                     extra_features["previous_mood"] = emotion_change["previous_emotion"]
             
+            # 8. Save telemetry to TimescaleDB
+            try:
+                async with SessionLocal() as db:
+                    record = TelemetryRecord(
+                        session_id=f"session_{id(websocket)}",
+                        focus_score=score,
+                        status=status,
+                        mood=mood,
+                        is_tense=is_tense
+                    )
+                    db.add(record)
+                    await db.commit()
+            except Exception as db_err:
+                print(f"Database insert error: {db_err}")
+
             # Send the attention score + extended features back to the frontend
             payload = {"attention_score": attention_score}
             if data and "right_eye" in data:
