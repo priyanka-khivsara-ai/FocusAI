@@ -13,6 +13,7 @@ from sqlalchemy import select
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 from agent import get_agent
+from typing import Optional
 
 # Helper to extract Pitch, Yaw, and Roll from transformation matrix
 def calculate_head_pose(transformation_matrix):
@@ -396,37 +397,86 @@ app.add_middleware(
 )
 
 @app.get("/api/telemetry")
-async def get_telemetry():
+async def get_telemetry(user_id: Optional[str] = None):
     try:
         async with SessionLocal() as db:
-            result = await db.execute(
-                select(TelemetryRecord).order_by(TelemetryRecord.timestamp.desc()).limit(100)
-            )
+            if user_id and user_id != "all":
+                # Return data for a specific user (Admin mode)
+                result = await db.execute(
+                    select(TelemetryRecord)
+                    .where(TelemetryRecord.user_id == user_id)
+                    .order_by(TelemetryRecord.timestamp.desc())
+                    .limit(100)
+                )
+            else:
+                # Return data for all users (Super Admin mode)
+                result = await db.execute(
+                    select(TelemetryRecord)
+                    .order_by(TelemetryRecord.timestamp.desc())
+                    .limit(200)
+                )
+                
             records = result.scalars().all()
             
-            # Reverse so the oldest is first, making it perfect for ECharts timeline
-            return [
-                {
+            output = []
+            for r in records:
+                output.append({
                     "timestamp": r.timestamp.isoformat(),
                     "focus_score": r.focus_score,
                     "status": r.status,
-                    "mood": r.mood,
                     "is_tense": r.is_tense,
-                }
-                for r in reversed(records)
-            ]
+                    "mood": r.mood,
+                    "user_id": r.user_id,
+                    "eyebrows": r.eyebrows,
+                    "yawning": r.yawning,
+                    "lip_movement": r.lip_movement
+                })
+            return output
     except Exception as e:
         print(f"Error fetching telemetry: {e}")
         return []
 
+@app.get("/api/telemetry/latest")
+async def get_latest_telemetry():
+    try:
+        async with SessionLocal() as db:
+            # Query the single most recent record for each distinct user_id
+            result = await db.execute(
+                select(TelemetryRecord)
+                .distinct(TelemetryRecord.user_id)
+                .order_by(TelemetryRecord.user_id, TelemetryRecord.timestamp.desc())
+            )
+            records = result.scalars().all()
+            
+            output = []
+            for r in records:
+                output.append({
+                    "timestamp": r.timestamp.isoformat(),
+                    "focus_score": r.focus_score,
+                    "status": r.status,
+                    "is_tense": r.is_tense,
+                    "mood": r.mood,
+                    "user_id": r.user_id,
+                    "eyebrows": r.eyebrows,
+                    "yawning": r.yawning,
+                    "lip_movement": r.lip_movement
+                })
+            return output
+    except Exception as e:
+        print(f"Error fetching latest telemetry: {e}")
+        return []
+
 class ChatRequest(BaseModel):
     message: str
+    user_id: Optional[str] = None
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
     try:
         agent = get_agent()
-        messages = [HumanMessage(content=req.message)]
+        # Pass the user context into the AI prompt!
+        context = f"[Context: Analyzing data for {'all users (Super Admin)' if not req.user_id or req.user_id == 'all' else f'user {req.user_id}'}]. "
+        messages = [HumanMessage(content=context + req.message)]
         
         # Run the LangGraph state machine with the user's prompt
         result = await agent.ainvoke({"messages": messages})
@@ -442,10 +492,10 @@ async def root():
     return {"message": "FocusAI Backend is running securely."}
 
 # WebSocket endpoint to receive video frames from the user's browser
-@app.websocket("/ws/user")
-async def user_endpoint(websocket: WebSocket):
+@app.websocket("/ws/user/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str):
     await websocket.accept()
-    print("User connected securely via WebSocket.")
+    print(f"[{user_id}] Connected to AI Telemetry stream.")
     
     try:
         while True:
@@ -564,14 +614,18 @@ async def user_endpoint(websocket: WebSocket):
             # 8. Save telemetry to TimescaleDB
             try:
                 async with SessionLocal() as db:
-                    record = TelemetryRecord(
+                    db_record = TelemetryRecord(
                         session_id=f"session_{id(websocket)}",
-                        focus_score=score,
+                        user_id=user_id,
+                        focus_score=round(score, 1),
                         status=status,
                         mood=mood,
-                        is_tense=is_tense
+                        is_tense=is_tense,
+                        eyebrows=eyebrow_state,
+                        yawning=is_yawning,
+                        lip_movement=is_moving_lips
                     )
-                    db.add(record)
+                    db.add(db_record)
                     await db.commit()
             except Exception as db_err:
                 print(f"Database insert error: {db_err}")

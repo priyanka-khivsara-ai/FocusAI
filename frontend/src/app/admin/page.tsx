@@ -3,17 +3,29 @@ import { useEffect, useState } from "react";
 import ReactECharts from "echarts-for-react";
 
 export default function AdminDashboard() {
+  const [role, setRole] = useState("Super Admin");
   const [data, setData] = useState([]);
+  const [latestData, setLatestData] = useState([]);
+  
+  // Multi-Tenant State
+  const [selectedUser, setSelectedUser] = useState("all");
   
   // Chat Agent State
   const [query, setQuery] = useState("");
   const [chatLog, setChatLog] = useState<{role: string, content: string}[]>([]);
   const [loading, setLoading] = useState(false);
-  
+
   useEffect(() => {
+    const savedRole = localStorage.getItem("focusai_role") || "Super Admin";
+    setRole(savedRole);
+  }, []);
+
+  // --- SUPER ADMIN: Polling for Timeseries Charts ---
+  useEffect(() => {
+    if (role !== "Super Admin") return;
     const fetchData = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8000/api/telemetry");
+        const res = await fetch(`http://127.0.0.1:8000/api/telemetry?user_id=${selectedUser}`);
         const json = await res.json();
         setData(json);
       } catch (e) {
@@ -24,7 +36,25 @@ export default function AdminDashboard() {
     fetchData();
     const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [role, selectedUser]);
+
+  // --- ADMIN: Polling for Real-Time Monitoring Table ---
+  useEffect(() => {
+    if (role !== "Admin") return;
+    const fetchLatest = async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/api/telemetry/latest`);
+        const json = await res.json();
+        setLatestData(json);
+      } catch (e) {
+        console.error("Failed to fetch latest telemetry:", e);
+      }
+    };
+    
+    fetchLatest();
+    const interval = setInterval(fetchLatest, 1000);
+    return () => clearInterval(interval);
+  }, [role]);
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +69,7 @@ export default function AdminDashboard() {
       const res = await fetch("http://127.0.0.1:8000/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage })
+        body: JSON.stringify({ message: userMessage, user_id: selectedUser })
       });
       const json = await res.json();
       setChatLog(prev => [...prev, { role: "agent", content: json.response }]);
@@ -118,12 +148,90 @@ export default function AdminDashboard() {
     ]
   };
 
+  // --- ADMIN VIEW (Monitoring Table) ---
+  if (role === "Admin") {
+    return (
+      <div className="p-8 min-h-screen bg-slate-50">
+        <div className="max-w-7xl mx-auto space-y-8">
+          <div>
+            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Admin Live Monitoring</h1>
+            <p className="text-slate-500 font-medium mt-1">Real-time facial states and cognitive focus across all students.</p>
+          </div>
+          
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">User ID</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Focus Score</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Mood / Smile</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Eyebrows</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Yawning</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Talking</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Tense</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-slate-200">
+                {latestData.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-12 text-center text-slate-400 font-medium">Waiting for students to connect...</td>
+                  </tr>
+                )}
+                {latestData.map((row: any, i) => (
+                  <tr key={i} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                      {row.user_id}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">
+                      <span className={`px-3 py-1 rounded-full text-xs ${row.status === 'Attentive' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                        {row.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-black text-slate-700">{row.focus_score}%</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.mood}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{row.eyebrows || 'Neutral'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {row.yawning ? <span className="text-rose-600 font-bold bg-rose-50 px-2 py-1 rounded">Yes</span> : <span className="text-slate-400">No</span>}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {row.lip_movement ? <span className="text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded">Active</span> : <span className="text-slate-400">Still</span>}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {row.is_tense ? <span className="text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded">Tense</span> : <span className="text-slate-400">Relaxed</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- SUPER ADMIN VIEW (ECharts Dashboard) ---
   return (
     <div className="p-8 pb-20 min-h-screen bg-slate-50">
       <div className="max-w-7xl mx-auto space-y-8">
-        <div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight">Super Admin Dashboard</h1>
-          <p className="text-slate-500 font-medium mt-1">Multi-tenant Cognitive Telemetry Access</p>
+        <div className="flex items-end justify-between">
+          <div>
+            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Super Admin Dashboard</h1>
+            <p className="text-slate-500 font-medium mt-1">Multi-tenant Cognitive Telemetry Access</p>
+          </div>
+          
+          <div className="flex flex-col">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">View Telemetry For:</label>
+            <select 
+              value={selectedUser}
+              onChange={(e) => setSelectedUser(e.target.value)}
+              className="bg-white border border-slate-300 text-slate-700 font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+            >
+              <option value="all">Super Admin (System Average)</option>
+              <option value="user_1">User 1</option>
+            </select>
+          </div>
         </div>
         
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">

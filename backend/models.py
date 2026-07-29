@@ -13,6 +13,9 @@ class TelemetryRecord(Base):
     # TimescaleDB requires the partitioning column (timestamp) to be part of the Primary Key!
     timestamp = Column(DateTime(timezone=True), primary_key=True, server_default=func.now(), nullable=False)
     
+    # Multi-Tenant Tracking
+    user_id = Column(String, index=True, nullable=False, default="user_1")
+    
     # Session tracking
     session_id = Column(String, index=True, nullable=False, default="default_session")
     
@@ -21,3 +24,6 @@ class TelemetryRecord(Base):
     status = Column(String, nullable=False)  # e.g., 'Attentive', 'Distracted'
     mood = Column(String, nullable=False)    # e.g., 'Neutral', 'Genuine Smile'
     is_tense = Column(Boolean, default=False, nullable=False)
+    eyebrows = Column(String, nullable=True) # e.g., 'Raised', 'Lowered', 'Neutral'
+    yawning = Column(Boolean, default=False, nullable=True)
+    lip_movement = Column(Boolean, default=False, nullable=True)
