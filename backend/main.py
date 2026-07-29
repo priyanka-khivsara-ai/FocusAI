@@ -257,7 +257,8 @@ def detect_smile(mouth_landmarks, left_eye, right_eye):
     avg_ear = (calculate_ear(left_eye) + calculate_ear(right_eye)) / 2.0
 
     # Empirical threshold: eyes noticeably squinted alongside the smile = genuine
-    if avg_ear < 0.24:
+    # Raised to 0.32 so that very slight natural eye wrinkling triggers Genuine
+    if avg_ear < 0.32:
         return True, "Genuine"
     else:
         return True, "Fake/Social"
@@ -266,16 +267,15 @@ def detect_smile(mouth_landmarks, left_eye, right_eye):
 # ---------------------------------------------------------------------------------------
 # FACIAL TENSION DETECTION (brow furrow + jaw/lip clench)
 # ---------------------------------------------------------------------------------------
-def detect_facial_tension(left_eyebrow, right_eyebrow, mouth_landmarks):
+def detect_facial_tension(left_eyebrow, right_eyebrow, mouth_landmarks, is_smiling=False):
     """
     Tension shows up as: eyebrows drawn together/down (furrow) and lips pressed
     thin/tight. Combines inner-brow distance with mouth compression.
     Returns (is_tense: bool, tension_score: float 0-100)
     """
-    # Inner eyebrow points pull together when frowning/concentrating hard
-    inner_left = left_eyebrow[-1]   # closest point to nose bridge, by convention
-    inner_right = right_eyebrow[0]
-    brow_gap = calculate_distance(inner_left, inner_right)
+    # Calculate minimum possible gap between any point on left brow and right brow
+    # This prevents failures caused by landmark index ordering from the frontend
+    brow_gap = min(calculate_distance(pl, pr) for pl in left_eyebrow for pr in right_eyebrow)
 
     left_corner, right_corner, top_outer, bottom_outer = mouth_landmarks[:4]
     mouth_width = calculate_distance(left_corner, right_corner)
@@ -285,10 +285,16 @@ def detect_facial_tension(left_eyebrow, right_eyebrow, mouth_landmarks):
     lip_compression = 1 - (lip_thickness / mouth_width) if mouth_width else 0
 
     tension_score = 0
+    
+    # A wide smile mathematically stretches the mouth width and lips, which fakes a tense brow and lip compression.
+    if is_smiling:
+        return False, 0
+
     # Narrow brow gap (relative to mouth width as a stable face-scale reference)
-    if mouth_width and (brow_gap / mouth_width) < 0.35:
+    if mouth_width and (brow_gap / mouth_width) < 0.50:
         tension_score += 50
-    if lip_compression > 0.85:
+    # Lowered the lip compression threshold from 0.85 to 0.65 for more sensitivity
+    if lip_compression > 0.65:
         tension_score += 50
 
     is_tense = tension_score >= 50
@@ -478,7 +484,7 @@ async def user_endpoint(websocket: WebSocket):
                     is_yawning, mar = detect_yawn(mouth)
                     is_smiling, smile_type = detect_smile(mouth, left_eye, right_eye)
                     if data.get('left_eyebrow') and data.get('right_eyebrow'):
-                        is_tense, tension_score = detect_facial_tension(left_eyebrow, right_eyebrow, mouth)
+                        is_tense, tension_score = detect_facial_tension(left_eyebrow, right_eyebrow, mouth, is_smiling)
 
                 # 7. High-level mood classification + timestamped change log
                 mood = detect_emotion(avg_ear, pitch, yaw, eyebrow_state, is_tense, smile_type, is_yawning)
