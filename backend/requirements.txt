@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+websockets
+numpy
+supabase
+python-dotenv
+sqlalchemy
+asyncpg
+greenlet
+langchain
+langchain-openai
+langgraph
+langchain-groq
