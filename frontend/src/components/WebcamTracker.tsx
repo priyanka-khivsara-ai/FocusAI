@@ -59,7 +59,7 @@ export default function WebcamTracker() {
     const setupAI = async () => {
       setStatus("Downloading AI Model to Edge...");
       const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
       );
       
       // Next.js intercepts console.error and blocks the screen.
@@ -182,9 +182,6 @@ export default function WebcamTracker() {
     <div className="flex flex-col items-center bg-white p-6 rounded-2xl shadow-xl border border-slate-100 max-w-2xl w-full">
       <div className="w-full flex justify-between items-center mb-4">
         <h2 className="text-xl font-bold text-slate-800">Edge Tracker</h2>
-        <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">
-          Zero-Trust Privacy Mode
-        </span>
       </div>
       
       <div className="relative w-full aspect-video bg-slate-900 rounded-xl overflow-hidden mb-6 shadow-inner">
@@ -208,9 +205,6 @@ export default function WebcamTracker() {
         <p className="text-sm font-bold text-slate-700 uppercase tracking-wider">Secure Telemetry Active</p>
       </div>
       
-      <p className="mt-4 text-xs text-slate-400 text-center">
-        Video never leaves your device. Only highly-compressed feature vectors are streamed to the secure analysis server.
-      </p>
     </div>
   );
 }

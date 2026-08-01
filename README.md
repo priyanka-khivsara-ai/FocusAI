@@ -1,42 +1,129 @@
-# FocusAI: Cognitive Telemetry Engine 🧠
+<div align="center">
+  
+# 🧠 FocusAI: Cognitive Telemetry Engine
 
-FocusAI is an advanced **Agentic AI** platform designed for high-frequency, real-time extraction of human cognitive states using **Deep Learning (DL)** and **Computer Vision**. By deploying a highly optimized Edge AI vision pipeline directly in the browser, the system transforms raw video into a continuous stream of lightweight, multi-modal biometric telemetry (Eye Aspect Ratios, 3D Pose, Facial Tension, and Emotion Vectors). 
+**An enterprise-grade Agentic AI platform for real-time extraction of human cognitive states.**
 
-This telemetry is asynchronously streamed to a fast Python backend and permanently persisted in a **TimescaleDB** time-series database. The stored cognitive telemetry acts as the foundation for **Retrieval-Augmented Generation (RAG)**, allowing LLM Agents to query the database, analyze human engagement, and generate powerful natural-language insights over historical sessions.
+[![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?style=for-the-badge&logo=webassembly&logoColor=white)](https://webassembly.org/)
+[![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white)](https://langchain.com/)
 
-![FocusAI Architecture](https://img.shields.io/badge/Architecture-Edge_AI-blue)
-![Deep Learning](https://img.shields.io/badge/AI-Deep_Learning_%28DL%29-orange)
-![PostgreSQL](https://img.shields.io/badge/Database-TimescaleDB-009688)
+By deploying a highly optimized Edge AI vision pipeline directly in the browser, FocusAI transforms raw video into a continuous stream of lightweight, multi-modal biometric telemetry. This telemetry acts as the foundation for **Retrieval-Augmented Generation (RAG)**, allowing Autonomous Agents to analyze human engagement.
 
-## 🚀 Enterprise Architecture
+</div>
 
-* **Edge AI Vision Pipeline (WASM):** 100% of the Deep Learning Face Mesh processing happens on the client GPU/CPU via WebAssembly. The raw video is instantly discarded, and only mathematically compressed 3D feature vectors are streamed to the backend.
-* **Multi-Modal Behavioral Engine:** The Python backend parses the raw 3D vectors to calculate precise true Pitch/Yaw/Roll, Gaze direction, Lip Compression, Brow Furrowing (Facial Tension), and Eye Aspect Ratio (EAR) for Micro-Sleep detection.
-* **Agentic AI & RAG Layer (WIP):** Cognitive state telemetry is persisted to a time-series database. Specialized Autonomous Agents use RAG and Information Retrieval to query this historical data, generating human-readable behavioral insights and automated anomaly reports.
+---
 
-## 🛠️ Technology Stack
+## 📖 Table of Contents
+- [✨ Key Features](#-key-features)
+- [🏗️ System Architecture](#-system-architecture)
+- [🚀 Technical Deep Dive](#-technical-deep-dive)
+- [🛠️ Tech Stack](#-tech-stack)
+- [💻 Quick Start Guide](#-quick-start-guide)
 
-* **Edge Node:** Next.js 15, React, TypeScript, WebAssembly, MediaPipe
-* **Telemetry Server:** Python, FastAPI, Uvicorn, NumPy
-* **Data Persistence:** PostgreSQL, TimescaleDB, SQLAlchemy, asyncpg
+---
 
-## 💻 Getting Started
+## ✨ Key Features
+
+| Feature | Description |
+| :--- | :--- |
+| **Edge AI Processing** | 100% of the Deep Learning Face Mesh processing runs on the client GPU/CPU via WebAssembly. Video never leaves the device. |
+| **Micro-Expression Engine** | Geometric heuristics detect Yaw/Pitch/Roll, Eye Aspect Ratio (EAR) for blinking, and Mouth Aspect Ratio (MAR) for yawning. |
+| **Dual-Database Architecture** | Uses PostgreSQL for secure JWT authentication, and TimescaleDB Hypertables for high-frequency time-series telemetry tracking. |
+| **Agentic AI Layer** | Powered by Groq (Llama 3.1) and LangGraph, the AI acts autonomously to query databases and generate insights. |
+| **Real-Time Dashboards** | A beautiful Next.js dashboard polling live metrics via REST APIs and WebSockets. |
+
+---
+
+## 🏗️ System Architecture
+
+FocusAI operates over a distributed architecture combining on-device Edge computing with a modular, highly-concurrent Python backend.
+
+```mermaid
+graph TD
+    subgraph Edge Node Browser
+        A[Next.js Frontend] -->|Auth| L[JWT LocalStorage]
+        B[Webcam Video] --> C[MediaPipe WebAssembly]
+        C --> D[3D Face & Iris Landmarks]
+    end
+
+    subgraph Backend Services
+        E[FastAPI API Router]
+        W[FastAPI WebSockets]
+        F[math.py: 3D Geometry]
+        G[analyzer.py: Emotion Detectors]
+        H[scorer.py: Focus Engine]
+        
+        D -- "JSON Feature Vectors" --> W
+        W --> F
+        W --> G
+        W --> H
+    end
+
+    subgraph Data Persistence
+        I[(TimescaleDB Hypertables)]
+        K[(PostgreSQL Users)]
+    end
+    
+    subgraph AI Layer
+        J[LangGraph ReAct Agent]
+        O[Groq Llama 3.1 8B]
+        J <--> O
+    end
+
+    W -- "Saves Telemetry" --> I
+    E -- "Validates Credentials" --> K
+    E -- "Generates" --> L
+    I -- "SQL Tool Queries" --> J
+```
+
+---
+
+## 🚀 Technical Deep Dive
+
+> 💡 **Want to know how the math works?** 
+> For a deep technical dive into exactly how the AI models, mathematical heuristics, and LangGraph Agent architecture operate, read the full **[Technical Architecture Guide](./technical_architecture.md)**.
+
+* **Biometric Rule-Based Emotion Engine:** Instead of heavy server-side AI, the backend uses geometric heuristics (Mouth Aspect Ratio for yawning, Eyebrow Furrowing for tension) to deduce micro-expressions effortlessly at 30fps.
+* **LangGraph Agentic Layer:** A ReAct agent powered by Groq's insanely fast `Llama 3.1` model sits on the Admin Dashboard. It has autonomous tool-access to query the TimescaleDB database directly to answer natural language questions about student engagement.
+
+---
+
+## 🛠️ Tech Stack
+
+### 🎨 Frontend (Edge Node)
+* **Framework:** Next.js 15, React, TypeScript
+* **Styling:** TailwindCSS
+* **AI:** WebAssembly (WASM), MediaPipe Tasks Vision
+
+### ⚙️ Backend (Telemetry Server)
+* **Core:** Python 3.13, FastAPI, Uvicorn
+* **Logic:** NumPy, PyJWT
+* **AI Agents:** LangChain, LangGraph, ChatGroq
+
+### 💾 Data Persistence
+* **Databases:** PostgreSQL, TimescaleDB
+* **ORM:** SQLAlchemy, asyncpg
+
+---
+
+## 💻 Quick Start Guide
 
 ### Prerequisites
 * Node.js (v18+)
-* Python 3.9+
-* Docker Desktop (or OrbStack)
+* Python (v3.9+)
+* Docker Desktop 
 
-### 1. Boot up the TimescaleDB Database (Docker)
-The system requires TimescaleDB to handle the high-frequency time-series telemetry.
+### 1. Boot up the Database (Docker)
+We use Docker to instantly provision the TimescaleDB and PostgreSQL databases.
 ```bash
 docker-compose up -d
 ```
-*Note: You can connect a GUI client like DBeaver using:*
-`Host: localhost` | `Port: 5432` | `DB: focus_db` | `User: focus_user` | `Pass: focus_password`
+*(Connection string: `postgresql://focus_user:focus_password@localhost:5432/focus_db`)*
 
 ### 2. Start the Telemetry Backend
-Open a terminal and start the async Python server:
 ```bash
 cd backend
 python3 -m venv .venv
@@ -44,17 +131,17 @@ source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
-*The backend will run on `ws://localhost:8000`.*
+*(The FastAPI backend will start running on `localhost:8000`)*
 
-### 3. Start the Edge Node (Frontend)
-Open a new terminal to start the Next.js UI:
+### 3. Start the Frontend Application
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-*The dashboard will be available at `http://localhost:3000`.*
+*(The web portal runs at `http://localhost:3000`)*
 
+<<<<<<< HEAD
 ## 🧠 The Mathematics of the Gaze Pipeline
 Standard gaze tracking algorithms suffer from immense jitter because they rely on dynamic eyelid landmarks. FocusAI solves this by anchoring a rigid mathematical bounding box directly to the tear duct and outer eye corner (which are physically anchored to the skull). The precise X and Y coordinates of the Iris are extracted, and displacement is normalized perfectly against the absolute width of the eye, creating a flawless `[-0.5 to 0.5]` detection grid that operates entirely independently of facial depth or camera angle.
 
@@ -63,3 +150,9 @@ Standard gaze tracking algorithms suffer from immense jitter because they rely o
 
 ## 📄 License
 This project is licensed under the MIT License.
+=======
+---
+<div align="center">
+  <i>Built with ❤️ for High-Performance Cognitive Analysis</i>
+</div>
+>>>>>>> 1cb583fc3cdfc4721c967663c818fca4fc056c20
