@@ -4,22 +4,40 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function LoginScreen() {
-  const [role, setRole] = useState("User");
-  const [userId, setUserId] = useState("user_1");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const router = useRouter();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Store user ID in localStorage for the tracker to pick up
-    localStorage.setItem("focusai_user_id", role === "Super Admin" ? "all" : userId);
-    // Store role so Dashboards can route features appropriately
-    localStorage.setItem("focusai_role", role);
-    
-    if (role === "User") {
-      router.push("/user");
-    } else {
-      router.push("/admin");
+    setError("");
+
+    try {
+      const response = await fetch("http://localhost:8000/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+
+      if (!response.ok) {
+        throw new Error("Invalid username or password");
+      }
+
+      const data = await response.json();
+      
+      // Store JWT token and user info
+      localStorage.setItem("focusai_token", data.access_token);
+      localStorage.setItem("focusai_user_id", data.user_id);
+      localStorage.setItem("focusai_role", data.role);
+      
+      if (data.role === "User") {
+        router.push("/user");
+      } else {
+        router.push("/admin");
+      }
+    } catch (err: any) {
+      setError(err.message);
     }
   };
 
@@ -29,37 +47,40 @@ export default function LoginScreen() {
         <h1 className="text-3xl font-black text-slate-900 text-center tracking-tight mb-2">FocusAI Portal</h1>
         <p className="text-slate-500 text-center font-medium mb-8">Unified Cognitive Intelligence</p>
         
+        {error && (
+          <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+            <span className="block sm:inline text-sm font-bold">{error}</span>
+          </div>
+        )}
+
         <form onSubmit={handleLogin} className="space-y-5">
           <div className="flex flex-col">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Select Your Role</label>
-            <select 
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Username</label>
+            <input 
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="bg-slate-50 border border-slate-200 text-slate-700 font-semibold py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            >
-              <option value="User">Student / User</option>
-              <option value="Admin">Administrator</option>
-              <option value="Super Admin">Super Administrator</option>
-            </select>
+              required
+            />
           </div>
 
           <div className="flex flex-col">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">User ID</label>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Password</label>
             <input 
-              type="text"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              disabled={role === "Super Admin"}
-              className="bg-slate-50 border border-slate-200 text-slate-700 font-semibold py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="bg-slate-50 border border-slate-200 text-slate-700 font-semibold py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              required
             />
-            {role === "Super Admin" && <span className="text-xs text-slate-400 mt-2">Super Admins have global system access.</span>}
           </div>
 
           <button 
             type="submit"
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl transition-colors mt-4 shadow-lg shadow-blue-600/30"
           >
-            Authenticate
+            Secure Login
           </button>
         </form>
       </div>

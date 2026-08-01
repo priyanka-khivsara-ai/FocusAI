@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "FocusAI | Edge Node",
-  description: "Privacy-first Edge AI user monitoring.",
+  description: "Edge AI user monitoring.",
 };
 
 export default function RootLayout({

@@ -191,15 +191,15 @@ export default function AdminDashboard() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-black text-slate-700">{row.focus_score}%</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.mood}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{row.eyebrows || 'Neutral'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{row.status === 'User Not Found' ? '-' : (row.eyebrows || 'Neutral')}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {row.yawning ? <span className="text-rose-600 font-bold bg-rose-50 px-2 py-1 rounded">Yes</span> : <span className="text-slate-400">No</span>}
+                      {row.status === 'User Not Found' ? <span className="text-slate-300">-</span> : (row.yawning ? <span className="text-rose-600 font-bold bg-rose-50 px-2 py-1 rounded">Yes</span> : <span className="text-slate-400">No</span>)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {row.lip_movement ? <span className="text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded">Active</span> : <span className="text-slate-400">Still</span>}
+                      {row.status === 'User Not Found' ? <span className="text-slate-300">-</span> : (row.lip_movement ? <span className="text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded">Active</span> : <span className="text-slate-400">Still</span>)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {row.is_tense ? <span className="text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded">Tense</span> : <span className="text-slate-400">Relaxed</span>}
+                      {row.status === 'User Not Found' ? <span className="text-slate-300">-</span> : (row.is_tense ? <span className="text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded">Tense</span> : <span className="text-slate-400">Relaxed</span>)}
                     </td>
                   </tr>
                 ))}
