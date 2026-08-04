@@ -41,7 +41,7 @@ def format_records(records):
     return output
 
 @router.get("/telemetry")
-async def get_telemetry(user_id: Optional[str] = None):
+async def get_telemetry(session_id: str, user_id: Optional[str] = None):
     try:
         async with SessionLocal() as db:
             if user_id and user_id != "all":
@@ -53,11 +53,11 @@ async def get_telemetry(user_id: Optional[str] = None):
                     FROM attention_timeline a
                     LEFT JOIN emotion_timeline e ON a.timestamp = e.timestamp AND a.session_id = e.session_id
                     LEFT JOIN facial_metrics f ON a.timestamp = f.timestamp AND a.session_id = f.session_id
-                    WHERE a.user_id = :uid
+                    WHERE a.user_id = :uid AND a.session_id = :session_id
                     ORDER BY a.timestamp DESC
                     LIMIT 100
                 """)
-                result = await db.execute(query, {"uid": user_id})
+                result = await db.execute(query, {"uid": user_id, "session_id": session_id})
             else:
                 query = text("""
                     SELECT a.timestamp, a.attention_score as focus_score, a.user_id,
@@ -69,11 +69,11 @@ async def get_telemetry(user_id: Optional[str] = None):
                     JOIN roles r ON u.role_id = r.id
                     LEFT JOIN emotion_timeline e ON a.timestamp = e.timestamp AND a.session_id = e.session_id
                     LEFT JOIN facial_metrics f ON a.timestamp = f.timestamp AND a.session_id = f.session_id
-                    WHERE r.name = 'User'
+                    WHERE r.name = 'User' AND a.session_id = :session_id
                     ORDER BY a.timestamp DESC
                     LIMIT 200
                 """)
-                result = await db.execute(query)
+                result = await db.execute(query, {"session_id": session_id})
                 
             records = result.fetchall()
             return format_records(records)
@@ -82,7 +82,7 @@ async def get_telemetry(user_id: Optional[str] = None):
         return []
 
 @router.get("/telemetry/latest")
-async def get_latest_telemetry():
+async def get_latest_telemetry(session_id: str):
     try:
         async with SessionLocal() as db:
             query = text("""
@@ -96,10 +96,10 @@ async def get_latest_telemetry():
                 JOIN roles r ON u.role_id = r.id
                 LEFT JOIN emotion_timeline e ON a.timestamp = e.timestamp AND a.session_id = e.session_id
                 LEFT JOIN facial_metrics f ON a.timestamp = f.timestamp AND a.session_id = f.session_id
-                WHERE r.name = 'User'
+                WHERE r.name = 'User' AND a.session_id = :session_id
                 ORDER BY a.user_id, a.timestamp DESC
             """)
-            result = await db.execute(query)
+            result = await db.execute(query, {"session_id": session_id})
             records = result.fetchall()
             return format_records(records)
     except Exception as e:
@@ -108,13 +108,14 @@ async def get_latest_telemetry():
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: str
     user_id: Optional[str] = None
 
 @router.post("/chat")
 async def chat_endpoint(req: ChatRequest):
     try:
-        agent = get_agent()
-        context = f"[Context: Analyzing data for {'all users (Super Admin)' if not req.user_id or req.user_id == 'all' else f'user {req.user_id}'}]. "
+        agent = get_agent(req.session_id)
+        context = f"[Context: Analyzing data for {'all users (Admin)' if not req.user_id or req.user_id == 'all' else f'user {req.user_id}'} in meeting room '{req.session_id}']. "
         messages = [HumanMessage(content=context + req.message)]
         
         result = await agent.ainvoke({"messages": messages})

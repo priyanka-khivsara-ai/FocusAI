@@ -29,7 +29,7 @@ function FeatureRow({
   );
 }
 
-export default function WebcamTracker() {
+export default function WebcamTracker({ sessionId }: { sessionId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState("Initializing Edge AI...");
   const [score, setScore] = useState<string>("--");
@@ -85,8 +85,8 @@ export default function WebcamTracker() {
       console.error = originalError; // Restore normal errors
 
       setStatus("Connecting to Backend Server...");
-      const savedUserId = localStorage.getItem("focusai_user_id") || "user_1";
-      ws = new WebSocket(`ws://localhost:8000/ws/user/${savedUserId}`);
+      const userId = localStorage.getItem("focusai_user_id") || "unknown";
+      ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/user/${userId}/${sessionId}`);
       
       ws.onmessage = (event) => {
         // We receive data from backend but WE DO NOT SHOW IT in the User Portal for privacy!
