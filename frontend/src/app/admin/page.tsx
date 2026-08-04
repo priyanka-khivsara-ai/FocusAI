@@ -213,18 +213,40 @@ export default function AdminDashboard() {
           <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest">{role} Portal</p>
         </div>
 
-        <div className="p-4 border-b border-slate-800">
-          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Meeting Code</label>
-          <input 
-            type="text"
-            placeholder="e.g. AI-101"
-            value={activeSessionId}
-            onChange={(e) => setActiveSessionId(e.target.value.toUpperCase())}
-            className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase mb-3"
-          />
+        <div className="p-4 border-b border-slate-800 space-y-3">
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">
+              {industryMode === 'Education' ? 'Course / Group' : 'Workspace'}
+            </label>
+            <input type="text" id="course_input" placeholder={industryMode === 'Education' ? 'e.g. CS101' : 'e.g. Engineering'} className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">
+              {industryMode === 'Education' ? 'Subject / Topic' : 'Project'}
+            </label>
+            <input type="text" id="subject_input" placeholder={industryMode === 'Education' ? 'e.g. Data Structures' : 'e.g. Sprint Planning'} className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block mt-2">Meeting Code</label>
+            <input 
+              type="text"
+              placeholder="e.g. AI-101"
+              value={activeSessionId}
+              onChange={(e) => setActiveSessionId(e.target.value.toUpperCase())}
+              className="w-full bg-slate-800 border border-slate-700 text-white font-bold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase text-sm"
+            />
+          </div>
           <button 
-            onClick={handleCreateMeeting}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-xl transition-all shadow-md text-sm"
+            onClick={async () => {
+              const c = (document.getElementById('course_input') as HTMLInputElement)?.value;
+              const s = (document.getElementById('subject_input') as HTMLInputElement)?.value;
+              if (!c || !s) {
+                 alert("Please provide the " + (industryMode === 'Education' ? 'Course and Subject' : 'Workspace and Project'));
+                 return;
+              }
+              handleCreateMeeting();
+            }}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl transition-all shadow-md text-sm mt-2"
           >
             + Create New Meeting
           </button>
@@ -415,48 +437,6 @@ export default function AdminDashboard() {
               </div>
             </div>
             
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 mt-6">
-              <div className="flex items-center justify-between mb-4">
-                 <div>
-                   <h3 className="text-xl font-black text-slate-800">Ground Truth AI Calibration</h3>
-                   <p className="text-slate-500 text-sm mt-1">Fine-tune the mathematical attention heuristics by providing an accurate ground truth score for a specific user.</p>
-                 </div>
-                 <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-bold text-xs uppercase tracking-wider">Experimental</span>
-              </div>
-              <div className="flex items-end gap-4 bg-slate-50 p-6 rounded-2xl border border-slate-200">
-                <div className="flex-1">
-                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Participant ID</label>
-                   <select id="cal_user" className="w-full bg-white border border-slate-300 text-slate-700 font-semibold py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                     {latestData.map((d: any) => <option key={d.user_id} value={d.user_id}>{d.user_id}</option>)}
-                   </select>
-                </div>
-                <div className="flex-1">
-                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">System Score</label>
-                   <input type="number" id="cal_sys" className="w-full bg-slate-200 border-none text-slate-500 font-semibold py-2.5 px-3 rounded-xl" placeholder="E.g. 50" />
-                </div>
-                <div className="flex-1">
-                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Ground Truth Score</label>
-                   <input type="number" id="cal_true" className="w-full bg-white border border-indigo-300 text-indigo-900 font-bold py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="E.g. 90" />
-                </div>
-                <button onClick={async () => {
-                  const uid = (document.getElementById('cal_user') as HTMLSelectElement)?.value;
-                  const sys = (document.getElementById('cal_sys') as HTMLInputElement)?.value;
-                  const truth = (document.getElementById('cal_true') as HTMLInputElement)?.value;
-                  if(!uid || !sys || !truth) return alert('Fill all fields');
-                  try {
-                    const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry/calibrate`, {
-                      method: "POST", headers: {"Content-Type": "application/json"},
-                      body: JSON.stringify({user_id: uid, current_system_score: parseInt(sys), ground_truth_score: parseInt(truth)})
-                    });
-                    const j = await res.json();
-                    alert(j.message);
-                  } catch(e) { alert("Error calibrating"); }
-                }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-xl transition-colors shadow-lg shadow-indigo-600/30 whitespace-nowrap">
-                  Apply Weights
-                </button>
-              </div>
-            </div>
-            </>
           )}
 
           {activeTab === "agent" && (
