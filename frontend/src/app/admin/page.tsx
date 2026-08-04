@@ -8,6 +8,7 @@ export default function AdminDashboard() {
   const router = useRouter();
   const [role, setRole] = useState("Admin");
   const [activeTab, setActiveTab] = useState("monitoring");
+  const [industryMode, setIndustryMode] = useState("Education"); // Education or Corporate
   
   // Data States
   const [activeSessionId, setActiveSessionId] = useState("");
@@ -40,7 +41,15 @@ export default function AdminDashboard() {
     } else {
       setActiveTab("analytics");
     }
+
+    const savedMode = localStorage.getItem("focusai_industry") || "Education";
+    setIndustryMode(savedMode);
   }, [router]);
+
+  const handleIndustryChange = (mode: string) => {
+    setIndustryMode(mode);
+    localStorage.setItem("focusai_industry", mode);
+  };
 
   // Polling for Timeseries Charts (Admin only)
   useEffect(() => {
@@ -67,7 +76,9 @@ export default function AdminDashboard() {
       try {
         const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry/latest?session_id=${activeSessionId}`);
         const json = await res.json();
-        setLatestData(json);
+        // Sort distracted on top (Ascending focus score)
+        const sortedData = json.sort((a: any, b: any) => a.focus_score - b.focus_score);
+        setLatestData(sortedData);
       } catch (e) {
         console.error("Failed to fetch latest telemetry:", e);
       }
@@ -273,22 +284,64 @@ export default function AdminDashboard() {
               </p>
             </div>
             
-            {(activeTab === 'analytics' || activeTab === 'agent') && (
-               <select 
-                 value={selectedUser}
-                 onChange={(e) => setSelectedUser(e.target.value)}
-                 className="bg-white border-2 border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm outline-none transition-colors"
-               >
-                 <option value="all">System Average</option>
-                 <option value="user1">User: user1</option>
-                 <option value="user2">User: user2</option>
-               </select>
-            )}
+            
+            <div className="flex items-center gap-4">
+              {role === 'Admin' && (
+                <div className="bg-white border border-slate-200 rounded-xl flex p-1 shadow-sm">
+                  <button onClick={() => handleIndustryChange("Education")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${industryMode === 'Education' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Education Mode</button>
+                  <button onClick={() => handleIndustryChange("Corporate")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${industryMode === 'Corporate' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Corporate Mode</button>
+                </div>
+              )}
+              {(activeTab === 'analytics' || activeTab === 'agent') && (
+                 <select 
+                   value={selectedUser}
+                   onChange={(e) => setSelectedUser(e.target.value)}
+                   className="bg-white border-2 border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm outline-none transition-colors"
+                 >
+                   <option value="all">System Average</option>
+                   <option value="user1">User: user1</option>
+                   <option value="user2">User: user2</option>
+                 </select>
+              )}
+            </div>
           </header>
 
           {/* Tab Contents */}
           {activeTab === "analytics" && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
+                   <div className="text-4xl font-black text-slate-800">
+                     {data.length > 0 ? Math.round(data.reduce((acc: any, curr: any) => acc + curr.focus_score, 0) / data.length) + "%" : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Average attention of all users</p>
+                </div>
+                
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Attention Loss / Deviation</h3>
+                   <div className="text-4xl font-black text-rose-600">
+                     {data.length > 10 ? 
+                       Math.round(
+                         (data.slice(-10).reduce((a: any, b: any) => a + b.focus_score, 0) / 10) - 
+                         (data.slice(0, 10).reduce((a: any, b: any) => a + b.focus_score, 0) / 10)
+                       ) + "%" : "--"
+                     }
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Start of session vs End of session</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Primary Distractor</h3>
+                   <div className="text-2xl font-black text-amber-600">
+                     {Object.keys(moodCounts).length > 0 ? Object.keys(moodCounts).reduce((a, b) => moodCounts[a] > moodCounts[b] ? a : b) : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
+                </div>
+              </div>
+
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
@@ -361,6 +414,49 @@ export default function AdminDashboard() {
                 </table>
               </div>
             </div>
+            
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 mt-6">
+              <div className="flex items-center justify-between mb-4">
+                 <div>
+                   <h3 className="text-xl font-black text-slate-800">Ground Truth AI Calibration</h3>
+                   <p className="text-slate-500 text-sm mt-1">Fine-tune the mathematical attention heuristics by providing an accurate ground truth score for a specific user.</p>
+                 </div>
+                 <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-bold text-xs uppercase tracking-wider">Experimental</span>
+              </div>
+              <div className="flex items-end gap-4 bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                <div className="flex-1">
+                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Participant ID</label>
+                   <select id="cal_user" className="w-full bg-white border border-slate-300 text-slate-700 font-semibold py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                     {latestData.map((d: any) => <option key={d.user_id} value={d.user_id}>{d.user_id}</option>)}
+                   </select>
+                </div>
+                <div className="flex-1">
+                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">System Score</label>
+                   <input type="number" id="cal_sys" className="w-full bg-slate-200 border-none text-slate-500 font-semibold py-2.5 px-3 rounded-xl" placeholder="E.g. 50" />
+                </div>
+                <div className="flex-1">
+                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Ground Truth Score</label>
+                   <input type="number" id="cal_true" className="w-full bg-white border border-indigo-300 text-indigo-900 font-bold py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="E.g. 90" />
+                </div>
+                <button onClick={async () => {
+                  const uid = (document.getElementById('cal_user') as HTMLSelectElement)?.value;
+                  const sys = (document.getElementById('cal_sys') as HTMLInputElement)?.value;
+                  const truth = (document.getElementById('cal_true') as HTMLInputElement)?.value;
+                  if(!uid || !sys || !truth) return alert('Fill all fields');
+                  try {
+                    const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry/calibrate`, {
+                      method: "POST", headers: {"Content-Type": "application/json"},
+                      body: JSON.stringify({user_id: uid, current_system_score: parseInt(sys), ground_truth_score: parseInt(truth)})
+                    });
+                    const j = await res.json();
+                    alert(j.message);
+                  } catch(e) { alert("Error calibrating"); }
+                }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-xl transition-colors shadow-lg shadow-indigo-600/30 whitespace-nowrap">
+                  Apply Weights
+                </button>
+              </div>
+            </div>
+            </>
           )}
 
           {activeTab === "agent" && (

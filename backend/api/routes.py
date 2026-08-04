@@ -123,3 +123,35 @@ async def chat_endpoint(req: ChatRequest):
         return {"response": final_message}
     except Exception as e:
         return {"response": f"AI Error: Make sure your GROQ_API_KEY is valid! Details: {str(e)}"}
+
+class CalibrationRequest(BaseModel):
+    user_id: str
+    ground_truth_score: int
+    current_system_score: int
+
+@router.post("/telemetry/calibrate")
+async def calibrate_score(req: CalibrationRequest):
+    from models.relational import Calibration, User
+    try:
+        async with SessionLocal() as db:
+            # Get user id from username
+            query = text("SELECT id FROM users WHERE username = :username")
+            res = await db.execute(query, {"username": req.user_id})
+            u_row = res.fetchone()
+            if not u_row: return {"status": "error", "message": "User not found"}
+            
+            offset = req.ground_truth_score - req.current_system_score
+            
+            # Upsert calibration
+            cal_query = text("SELECT id FROM calibrations WHERE user_id = :uid")
+            cal_res = await db.execute(cal_query, {"uid": u_row.id})
+            cal_row = cal_res.fetchone()
+            
+            if cal_row:
+                await db.execute(text("UPDATE calibrations SET base_offset = :offset WHERE id = :cid"), {"offset": offset, "cid": cal_row.id})
+            else:
+                db.add(Calibration(user_id=u_row.id, base_offset=offset))
+            await db.commit()
+            return {"status": "success", "message": f"AI weights calibrated. Score offset of {offset}% applied."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
