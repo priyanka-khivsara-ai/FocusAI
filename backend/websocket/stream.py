@@ -12,8 +12,8 @@ from services.attention.scorer import calculate_final_score, handle_no_face, res
 
 router = APIRouter()
 
-@router.websocket("/ws/user/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: str):
+@router.websocket("/ws/user/{user_id}/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str):
     await websocket.accept()
     print(f"[{user_id}] Connected to AI Telemetry stream.")
     
@@ -129,7 +129,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
             
             try:
                 async with SessionLocal() as db:
-                    s_id = f"session_{id(websocket)}"
+                    s_id = session_id
                     
                     att_rec = AttentionTimeline(
                         session_id=s_id,

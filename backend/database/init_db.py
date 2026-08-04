@@ -45,7 +45,7 @@ async def init_models():
                 print(f"Error configuring hypertable for {table}: {e}")
 
         print("Seeding initial roles and users...")
-        await conn.execute(text("INSERT INTO roles (id, name, description) VALUES (1, 'Super Admin', 'Full system access'), (2, 'Admin', 'Dashboard access'), (3, 'User', 'Student tracking')"))
+        await conn.execute(text("INSERT INTO roles (id, name, description) VALUES (1, 'Admin', 'Full system access'), (2, 'Host', 'Dashboard access'), (3, 'User', 'User tracking')"))
         
         users = [
             ("FocusAI", "FocusAI", "focusai@example.com", 1),

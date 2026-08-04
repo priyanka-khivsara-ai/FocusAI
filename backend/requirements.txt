@@ -11,3 +11,7 @@ langchain
 langchain-openai
 langgraph
 langchain-groq
+pandas
+openpyxl
+PyPDF2
+python-multipart
