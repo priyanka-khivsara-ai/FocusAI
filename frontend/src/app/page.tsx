@@ -4,46 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function LoginScreen() {
-<<<<<<< HEAD
-  const [role, setRole] = useState("User");
-  const [userId, setUserId] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-=======
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
->>>>>>> 1cb583fc3cdfc4721c967663c818fca4fc056c20
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-<<<<<<< HEAD
     setLoading(true);
-    
-    try {
-      const res = await fetch("http://127.0.0.1:8000/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, password, role })
-      });
-      const data = await res.json();
-      
-      if (data.success) {
-        localStorage.setItem("focusai_user_id", role === "Super Admin" ? "all" : userId);
-        localStorage.setItem("focusai_role", role);
-        if (role === "User") router.push("/user");
-        else router.push("/admin");
-      } else {
-        setError(data.message || "Invalid credentials");
-      }
-    } catch (err) {
-      setError("Failed to connect to server. Is the backend running?");
-    } finally {
-      setLoading(false);
-=======
 
     try {
       const response = await fetch("http://localhost:8000/api/auth/login", {
@@ -70,7 +40,8 @@ export default function LoginScreen() {
       }
     } catch (err: any) {
       setError(err.message);
->>>>>>> 1cb583fc3cdfc4721c967663c818fca4fc056c20
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -101,24 +72,6 @@ export default function LoginScreen() {
           <div className="flex flex-col">
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Password</label>
             <input 
-<<<<<<< HEAD
-              type="text"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              placeholder="e.g. admin"
-=======
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
->>>>>>> 1cb583fc3cdfc4721c967663c818fca4fc056c20
-              className="bg-slate-50 border border-slate-200 text-slate-700 font-semibold py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-              required
-            />
-          </div>
-
-          <div className="flex flex-col">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Password</label>
-            <input 
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -134,11 +87,7 @@ export default function LoginScreen() {
             disabled={loading}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-3 px-6 rounded-xl transition-colors mt-4 shadow-lg shadow-blue-600/30"
           >
-<<<<<<< HEAD
-            {loading ? "Authenticating..." : "Authenticate"}
-=======
-            Secure Login
->>>>>>> 1cb583fc3cdfc4721c967663c818fca4fc056c20
+            {loading ? "Authenticating..." : "Secure Login"}
           </button>
         </form>
       </div>

@@ -21,29 +21,6 @@ async def init_models():
         print("Creating all tables...")
         await conn.run_sync(Base.metadata.create_all)
 
-        print("Configuring TimescaleDB Hypertables...")
-        # Add TimescaleDB extension if not exists
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;"))
-        
-        # Create hypertables
-        hypertables = [
-            "attention_timeline",
-            "emotion_timeline",
-            "facial_metrics",
-            "body_metrics",
-            "events",
-            "warnings",
-            "liveness_checks"
-        ]
-        
-        for table in hypertables:
-            try:
-                # if_not_exists prevents error if it's already a hypertable
-                await conn.execute(text(f"SELECT create_hypertable('{table}', 'timestamp', if_not_exists => TRUE);"))
-                print(f"Successfully configured hypertable: {table}")
-            except Exception as e:
-                print(f"Error configuring hypertable for {table}: {e}")
-
         print("Seeding initial roles and users...")
         await conn.execute(text("INSERT INTO roles (id, name, description) VALUES (1, 'Super Admin', 'Full system access'), (2, 'Admin', 'Dashboard access'), (3, 'User', 'Student tracking')"))
         
