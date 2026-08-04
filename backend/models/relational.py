@@ -21,6 +21,7 @@ class User(Base):
     password = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False, index=True)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
+    industry = Column(String, default="Education")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
 class Workspace(Base):
@@ -28,6 +29,7 @@ class Workspace(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, nullable=False) # e.g. PDAC, DBDA, Engineering Dept
     code = Column(String, unique=True, nullable=False)
+    industry = Column(String, default="Education")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Project(Base):

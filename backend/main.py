@@ -6,6 +6,7 @@ from api.routes import router as api_router
 from api.auth import router as auth_router
 from api.users import router as users_router
 from api.sessions import router as sessions_router
+from api.taxonomy import router as taxonomy_router
 from websocket.stream import router as websocket_router
 
 app = FastAPI(title="FocusAI Cognitive Telemetry Engine")
@@ -24,6 +25,7 @@ app.include_router(api_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(users_router, prefix="/api/users")
 app.include_router(sessions_router, prefix="/api/sessions")
+app.include_router(taxonomy_router, prefix="/api/taxonomy")
 app.include_router(websocket_router)
 
 @app.get("/")

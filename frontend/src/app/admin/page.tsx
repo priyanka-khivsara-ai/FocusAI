@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import ReactECharts from "echarts-for-react";
-import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle } from "lucide-react";
+import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
@@ -15,6 +15,12 @@ export default function AdminDashboard() {
   const [data, setData] = useState([]);
   const [latestData, setLatestData] = useState([]);
   const [selectedUser, setSelectedUser] = useState("all");
+  
+  // Taxonomy States
+  const [mySubjects, setMySubjects] = useState<any[]>([]);
+  const [taxonomyTree, setTaxonomyTree] = useState<any[]>([]);
+  const [directoryTree, setDirectoryTree] = useState<any[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
   
   // Chat Agent State
   const [query, setQuery] = useState("");
@@ -93,7 +99,7 @@ export default function AdminDashboard() {
     if (activeTab !== "users") return;
     const fetchUsers = async () => {
       try {
-        const res = await fetch(`http://${window.location.hostname}:8000/api/users/list`);
+        const res = await fetch(`http://${window.location.hostname}:8000/api/users/list?industry=${industryMode}`);
         const json = await res.json();
         setRegisteredUsers(json.users || []);
       } catch (e) {
@@ -101,7 +107,38 @@ export default function AdminDashboard() {
       }
     };
     fetchUsers();
-  }, [activeTab]);
+  }, [activeTab, industryMode, refreshKey]);
+
+  // Fetch Taxonomy Tree and Subjects
+  useEffect(() => {
+    const fetchTaxonomy = async () => {
+      try {
+        // Fetch full tree for Admin
+        if (role === "Admin" && activeTab === "taxonomy") {
+          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/tree?industry=${industryMode}`);
+          const json = await res.json();
+          setTaxonomyTree(json);
+        }
+        
+        if (role === "Admin" && activeTab === "directory") {
+          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/directory?industry=${industryMode}`);
+          const json = await res.json();
+          setDirectoryTree(json);
+        }
+        
+        // Fetch allowed subjects for meeting creation
+        const username = localStorage.getItem("focusai_user_id"); // This is actually username
+        if (username) {
+          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/my-subjects?username=${username}`);
+          const json = await res.json();
+          setMySubjects(json);
+        }
+      } catch (e) {
+        console.error("Failed to fetch taxonomy:", e);
+      }
+    };
+    fetchTaxonomy();
+  }, [activeTab, role, refreshKey, industryMode]);
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,6 +172,7 @@ export default function AdminDashboard() {
     const formData = new FormData();
     formData.append("file", uploadFile);
     formData.append("role_name", uploadRole);
+    formData.append("industry", industryMode);
 
     try {
       const res = await fetch(`http://${window.location.hostname}:8000/api/users/bulk-upload`, {
@@ -157,8 +195,17 @@ export default function AdminDashboard() {
   };
 
   const handleCreateMeeting = async () => {
+    const selSubj = (document.getElementById('subject_select') as HTMLSelectElement)?.value;
+    if (!selSubj) {
+      alert("Please select a " + (industryMode === 'Education' ? 'Subject' : 'Project'));
+      return;
+    }
     try {
-      const res = await fetch(`http://${window.location.hostname}:8000/api/sessions/create`, { method: "POST" });
+      const res = await fetch(`http://${window.location.hostname}:8000/api/sessions/create`, { 
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: parseInt(selSubj) })
+      });
       const data = await res.json();
       setActiveSessionId(data.session_id);
       alert(`✅ Created Meeting: ${data.session_id}\n\nShare this link with students:\nhttp://${window.location.hostname}:3000/user?code=${data.session_id}`);
@@ -216,18 +263,20 @@ export default function AdminDashboard() {
         <div className="p-4 border-b border-slate-800 space-y-3">
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">
-              {industryMode === 'Education' ? 'Course / Group' : 'Workspace'}
+              Select {industryMode === 'Education' ? 'Subject' : 'Project'}
             </label>
-            <input type="text" id="course_input" placeholder={industryMode === 'Education' ? 'e.g. CS101' : 'e.g. Engineering'} className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm" />
+            {mySubjects.length === 0 ? (
+              <p className="text-xs text-red-400">You are not assigned to any subjects.</p>
+            ) : (
+              <select id="subject_select" className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm">
+                {mySubjects.map(sub => (
+                  <option key={sub.id} value={sub.id}>{sub.workspace_name} - {sub.name}</option>
+                ))}
+              </select>
+            )}
           </div>
           <div>
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">
-              {industryMode === 'Education' ? 'Subject / Topic' : 'Project'}
-            </label>
-            <input type="text" id="subject_input" placeholder={industryMode === 'Education' ? 'e.g. Data Structures' : 'e.g. Sprint Planning'} className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm" />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block mt-2">Meeting Code</label>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block mt-2">Active Meeting Code</label>
             <input 
               type="text"
               placeholder="e.g. AI-101"
@@ -237,16 +286,9 @@ export default function AdminDashboard() {
             />
           </div>
           <button 
-            onClick={async () => {
-              const c = (document.getElementById('course_input') as HTMLInputElement)?.value;
-              const s = (document.getElementById('subject_input') as HTMLInputElement)?.value;
-              if (!c || !s) {
-                 alert("Please provide the " + (industryMode === 'Education' ? 'Course and Subject' : 'Workspace and Project'));
-                 return;
-              }
-              handleCreateMeeting();
-            }}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl transition-all shadow-md text-sm mt-2"
+            onClick={handleCreateMeeting}
+            disabled={mySubjects.length === 0}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition-all shadow-md text-sm mt-2"
           >
             + Create New Meeting
           </button>
@@ -267,14 +309,17 @@ export default function AdminDashboard() {
           
           {role === "Admin" && (
             <>
-              <button onClick={() => setActiveTab("agent")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'agent' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                <Bot size={18} />
-                <span className="font-semibold text-sm">AI Analyst</span>
+              <button onClick={() => setActiveTab("directory")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'directory' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <FileText size={18} />
+                <span className="font-semibold text-sm">Directory Viewer</span>
               </button>
-              
               <button onClick={() => setActiveTab("users")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'users' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <Users size={18} />
                 <span className="font-semibold text-sm">User Provisioning</span>
+              </button>
+              <button onClick={() => setActiveTab("taxonomy")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'taxonomy' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <CheckCircle size={18} />
+                <span className="font-semibold text-sm">Taxonomy & Faculty</span>
               </button>
             </>
           )}
@@ -496,12 +541,12 @@ export default function AdminDashboard() {
                     <div className="grid grid-cols-2 gap-4">
                       <label className={`border-2 rounded-2xl p-4 cursor-pointer transition-all ${uploadRole === 'User' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
                         <input type="radio" name="role" value="User" checked={uploadRole === 'User'} onChange={() => setUploadRole("User")} className="hidden" />
-                        <div className="font-bold text-slate-800">User Role</div>
+                        <div className="font-bold text-slate-800">{industryMode === 'Education' ? 'User' : 'Employee'} Role</div>
                         <div className="text-xs text-slate-500 mt-1">Standard tracking participant</div>
                       </label>
                       <label className={`border-2 rounded-2xl p-4 cursor-pointer transition-all ${uploadRole === 'Host' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
                         <input type="radio" name="role" value="Host" checked={uploadRole === 'Host'} onChange={() => setUploadRole("Host")} className="hidden" />
-                        <div className="font-bold text-slate-800">Host Role</div>
+                        <div className="font-bold text-slate-800">{industryMode === 'Education' ? 'Host' : 'Manager'} Role</div>
                         <div className="text-xs text-slate-500 mt-1">Access to live monitoring</div>
                       </label>
                     </div>
@@ -582,11 +627,12 @@ export default function AdminDashboard() {
                         <th className="p-4 font-bold border-b border-slate-100">Email</th>
                         <th className="p-4 font-bold border-b border-slate-100">Password</th>
                         <th className="p-4 font-bold border-b border-slate-100">Role</th>
+                        <th className="p-4 font-bold border-b border-slate-100 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {registeredUsers.length === 0 ? (
-                        <tr><td colSpan={4} className="p-12 text-center text-slate-400">No users found.</td></tr>
+                        <tr><td colSpan={5} className="p-12 text-center text-slate-400">No users found.</td></tr>
                       ) : (
                         registeredUsers.map((u: any, i: number) => (
                           <tr key={i} className="hover:bg-slate-50 transition-colors">
@@ -595,8 +641,28 @@ export default function AdminDashboard() {
                             <td className="p-4 font-mono text-slate-500 bg-slate-100 rounded px-2 py-1 my-2 inline-block text-xs">{u.password || "Hidden"}</td>
                             <td className="p-4">
                               <span className={`px-2 py-1 rounded font-bold text-xs ${u.role === 'Admin' ? 'bg-amber-100 text-amber-700' : u.role === 'Host' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                                {u.role}
+                                {industryMode === 'Corporate' ? (u.role === 'Host' ? 'Manager' : u.role === 'User' ? 'Employee' : u.role) : u.role}
                               </span>
+                            </td>
+                            <td className="p-4 text-right">
+                              {u.username !== 'admin' && (
+                                <button onClick={async () => {
+                                  if(!confirm('Delete this user?')) return;
+                                  try {
+                                    const res = await fetch(`http://${window.location.hostname}:8000/api/users/${u.id}`, {method: 'DELETE'});
+                                    const j = await res.json();
+                                    alert(j.message || "Deleted");
+                                    // re-fetch users
+                                    const r2 = await fetch(`http://${window.location.hostname}:8000/api/users/list`);
+                                    const j2 = await r2.json();
+                                    setRegisteredUsers(j2.users || []);
+                                  } catch (e) {
+                                    alert("Error deleting user");
+                                  }
+                                }} className="text-rose-400 hover:text-rose-600 transition-colors p-2 rounded-md hover:bg-rose-50">
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))
@@ -604,6 +670,291 @@ export default function AdminDashboard() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+            </div>
+          )}
+          )}
+
+          {activeTab === "taxonomy" && role === "Admin" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Create Course */}
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Create New {industryMode === 'Education' ? 'Course' : 'Workspace'}</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Name</label>
+                      <input type="text" id="new_course_name" placeholder="e.g. Computer Science" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Code</label>
+                      <input type="text" id="new_course_code" placeholder="e.g. CS101" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl uppercase" />
+                    </div>
+                    <button onClick={async () => {
+                      const n = (document.getElementById('new_course_name') as HTMLInputElement)?.value;
+                      const c = (document.getElementById('new_course_code') as HTMLInputElement)?.value;
+                      if(!n || !c) return alert("Fill all fields");
+                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/course`, {
+                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name:n, code:c, industry:industryMode})
+                      });
+                      const j = await res.json();
+                      alert(j.message);
+                      // trigger re-fetch
+                      setRefreshKey(prev => prev + 1);
+                    }} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl">
+                      Create
+                    </button>
+                  </div>
+                </div>
+
+                {/* Create Subject */}
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Create New {industryMode === 'Education' ? 'Subject' : 'Project'}</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Course' : 'Workspace'}</label>
+                      <select id="new_sub_course" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
+                        {taxonomyTree.map(ws => <option key={ws.id} value={ws.id}>{ws.name} ({ws.code})</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Name</label>
+                      <input type="text" id="new_sub_name" placeholder="e.g. Data Structures" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl" />
+                    </div>
+                    <button onClick={async () => {
+                      const cid = (document.getElementById('new_sub_course') as HTMLSelectElement)?.value;
+                      const n = (document.getElementById('new_sub_name') as HTMLInputElement)?.value;
+                      if(!cid || !n) return alert("Fill all fields");
+                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/subject`, {
+                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({workspace_id:parseInt(cid), name:n})
+                      });
+                      const j = await res.json();
+                      alert(j.message);
+                      setRefreshKey(prev => prev + 1);
+                    }} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl">
+                      Create
+                    </button>
+                  </div>
+                </div>
+
+                {/* Assign Faculty */}
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 md:col-span-2">
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Assign {industryMode === 'Education' ? 'Faculty / Host' : 'Manager'} to {industryMode === 'Education' ? 'Subject' : 'Project'}</h3>
+                  <div className="flex flex-col md:flex-row gap-4 items-end">
+                    <div className="flex-1 w-full">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Faculty' : 'Manager'}</label>
+                      <select id="assign_user" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
+                        {registeredUsers.filter(u => u.role === "Host" || u.role === "Admin").map(u => (
+                          <option key={u.username} value={u.username}>{u.username}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex-1 w-full">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Subject' : 'Project'}</label>
+                      <select id="assign_sub" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
+                        {taxonomyTree.map(ws => (
+                          <optgroup key={ws.id} label={ws.name}>
+                            {ws.subjects.map((sub: any) => (
+                              <option key={sub.id} value={`${ws.id},${sub.id}`}>{sub.name}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                    <button onClick={async () => {
+                      const u = (document.getElementById('assign_user') as HTMLSelectElement)?.value;
+                      const val = (document.getElementById('assign_sub') as HTMLSelectElement)?.value;
+                      if(!u || !val) return alert("Select user and subject");
+                      const [wid, pid] = val.split(',');
+                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/assign`, {
+                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({username: u, workspace_id: parseInt(wid), project_id: parseInt(pid)})
+                      });
+                      const j = await res.json();
+                      alert(j.message);
+                      setRefreshKey(prev => prev + 1);
+                    }} className="w-full md:w-auto px-8 bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl">
+                      Assign
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+              
+              {/* Hierarchy Tree View */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 mt-6">
+                <h3 className="text-xl font-black text-slate-800 mb-6">Current Hierarchy</h3>
+                <div className="space-y-4">
+                  {taxonomyTree.map(ws => (
+                    <div key={ws.id} className="border border-slate-200 rounded-2xl p-4 bg-slate-50">
+                      <div className="flex justify-between items-center">
+                        <h4 className="font-black text-lg text-slate-800">{ws.name} <span className="text-slate-400 font-medium text-sm">({ws.code})</span></h4>
+                        <button onClick={async () => {
+                          if(!confirm('Delete this course?')) return;
+                          await fetch(`http://${window.location.hostname}:8000/api/taxonomy/course/${ws.id}`, {method: 'DELETE'});
+                          setRefreshKey(prev => prev + 1);
+                        }} className="text-rose-400 hover:text-rose-600 transition-colors p-1 rounded-md hover:bg-rose-50">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      <div className="mt-3 ml-4 space-y-2 border-l-2 border-blue-200 pl-4">
+                        {ws.subjects.map((sub: any) => (
+                          <div key={sub.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex flex-col gap-2">
+                            <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                              <span className="font-bold text-slate-700">{sub.name}</span>
+                              <button onClick={async () => {
+                                if(!confirm('Delete this subject?')) return;
+                                await fetch(`http://${window.location.hostname}:8000/api/taxonomy/subject/${sub.id}`, {method: 'DELETE'});
+                                setRefreshKey(prev => prev + 1);
+                              }} className="text-rose-400 hover:text-rose-600">
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{industryMode === 'Education' ? 'Hosts:' : 'Managers:'}</span>
+                              {sub.hosts.length > 0 ? sub.hosts.map((h: any) => (
+                                <span key={h.id} className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded-md flex items-center gap-2 border border-slate-200">
+                                  {h.username}
+                                  <button onClick={async () => {
+                                    if(!confirm('Remove this host?')) return;
+                                    await fetch(`http://${window.location.hostname}:8000/api/taxonomy/assign/${h.id}/${sub.id}`, {method: 'DELETE'});
+                                    setRefreshKey(prev => prev + 1);
+                                  }} className="text-rose-400 hover:text-rose-600">
+                                    <Trash2 size={12} />
+                                  </button>
+                                </span>
+                              )) : <span className="text-xs text-slate-400 italic">None</span>}
+                            </div>
+                          </div>
+                        ))}
+                        {ws.subjects.length === 0 && <p className="text-sm text-slate-400">No subjects added yet.</p>}
+                      </div>
+                    </div>
+                  ))}
+                  {taxonomyTree.length === 0 && <p className="text-slate-500 text-center py-8">No hierarchy created yet.</p>}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {activeTab === "directory" && role === "Admin" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {/* Hierarchical Bulk Upload */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                <h3 className="text-xl font-black text-slate-800 mb-2">Automated Hierarchy Import</h3>
+                <p className="text-slate-500 text-sm mb-6">
+                  Upload an Excel (.xlsx) or CSV file containing <strong>Course_Name, Subject_Name, Faculty_Name, Faculty_Email, Student_Name, Student_Email</strong> to automatically build your entire directory.
+                </p>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!uploadFile) return alert("Please select a file");
+                  setUploading(true);
+                  const formData = new FormData();
+                  formData.append("file", uploadFile);
+                  formData.append("industry", industryMode);
+                  try {
+                    const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/bulk-import`, {
+                      method: "POST", body: formData
+                    });
+                    const json = await res.json();
+                    if (!res.ok) throw new Error(json.detail);
+                    alert(`✅ ${json.message}`);
+                    setActiveTab("directory"); // Re-fetch
+                  } catch (err: any) {
+                    alert("Error: " + err.message);
+                  }
+                  setUploading(false);
+                }} className="space-y-4">
+                  <div className="flex items-center justify-center w-full">
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-200 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Upload className="w-8 h-8 mb-2 text-slate-400" />
+                        <p className="mb-1 text-sm text-slate-600"><span className="font-bold">Click to upload</span> or drag and drop</p>
+                        <p className="text-xs text-slate-400">.xlsx or .csv only</p>
+                      </div>
+                      <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+                    </label>
+                  </div>
+                  {uploadFile && <p className="text-sm font-semibold text-emerald-600">Selected: {uploadFile.name}</p>}
+                  
+                  <button type="submit" disabled={uploading} className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold py-3 rounded-xl shadow-md transition-all">
+                    {uploading ? 'Processing...' : 'Process Hierarchy'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Nested Directory Viewer */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                <h3 className="text-xl font-black text-slate-800 mb-6">All {industryMode === 'Education' ? 'Courses' : 'Workspaces'} & Users</h3>
+                
+                <div className="space-y-4">
+                  {directoryTree.map(ws => (
+                    <details key={ws.id} className="group border border-slate-200 rounded-2xl bg-slate-50 overflow-hidden">
+                      <summary className="font-black text-lg text-slate-800 p-4 cursor-pointer hover:bg-slate-100 transition-colors list-none flex justify-between items-center">
+                        <span>{ws.name} <span className="text-slate-400 font-medium text-sm">({ws.code})</span></span>
+                        <span className="text-sm text-blue-600 group-open:hidden">+ Expand</span>
+                        <span className="text-sm text-blue-600 hidden group-open:block">- Collapse</span>
+                      </summary>
+                      
+                      <div className="p-4 pt-0 space-y-4 border-t border-slate-200 bg-white">
+                        
+                        {/* Workspace Students */}
+                        {ws.students.length > 0 && (
+                          <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                            <h5 className="font-bold text-sm text-blue-800 mb-2 uppercase tracking-widest">Enrolled {industryMode === 'Education' ? 'Students' : 'Users'}</h5>
+                            <div className="flex flex-wrap gap-2">
+                              {ws.students.map((stu: any) => (
+                                <span key={stu.id} className="px-3 py-1 bg-white border border-blue-200 text-blue-700 text-sm font-semibold rounded-full shadow-sm">
+                                  {stu.username} <span className="text-blue-400 font-normal ml-1 text-xs">({stu.email})</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Subjects */}
+                        {ws.subjects.map((sub: any) => (
+                          <details key={sub.id} className="group/sub border border-slate-100 rounded-xl bg-slate-50 overflow-hidden ml-4 shadow-sm">
+                            <summary className="font-bold text-slate-700 p-3 cursor-pointer hover:bg-slate-100 transition-colors list-none flex justify-between items-center">
+                              {sub.name}
+                              <span className="text-xs text-slate-400">View Users</span>
+                            </summary>
+                            
+                            <div className="p-4 pt-0 space-y-4 border-t border-slate-100 bg-white grid grid-cols-1 md:grid-cols-2 gap-4">
+                              
+                              {/* Faculty */}
+                              <div>
+                                <h6 className="font-bold text-xs text-amber-700 mb-2 uppercase tracking-widest bg-amber-50 inline-block px-2 py-1 rounded">Assigned Faculty</h6>
+                                <div className="space-y-1">
+                                  {sub.faculty.length === 0 ? <p className="text-xs text-slate-400">None assigned</p> : sub.faculty.map((f: any) => (
+                                    <div key={f.id} className="text-sm font-semibold text-slate-700">{f.username} <span className="text-slate-400 font-normal">({f.email})</span></div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Students */}
+                              <div>
+                                <h6 className="font-bold text-xs text-emerald-700 mb-2 uppercase tracking-widest bg-emerald-50 inline-block px-2 py-1 rounded">Enrolled Students</h6>
+                                <div className="space-y-1">
+                                  {sub.students.length === 0 ? <p className="text-xs text-slate-400">None enrolled</p> : sub.students.map((stu: any) => (
+                                    <div key={stu.id} className="text-sm font-semibold text-slate-700">{stu.username} <span className="text-slate-400 font-normal">({stu.email})</span></div>
+                                  ))}
+                                </div>
+                              </div>
+
+                            </div>
+                          </details>
+                        ))}
+                        
+                      </div>
+                    </details>
+                  ))}
+                  {directoryTree.length === 0 && <p className="text-slate-500 text-center py-8">No hierarchical data found.</p>}
+                </div>
+
               </div>
 
             </div>
