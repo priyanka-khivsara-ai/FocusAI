@@ -272,6 +272,31 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleSubjectStudentClick = async (project_id: number, username: string) => {
+    setSelectedStudentName(username);
+    try {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry/user_subject_timeline?project_id=${project_id}&user_id=${username}`);
+      if (!res.ok) {
+         setSelectedStudentHistory([]);
+         return;
+      }
+      const json = await res.json();
+      if (json.timeline) {
+        setSelectedStudentHistory(json.timeline);
+        setSelectedStudentOverallScore(json.overall_score);
+      } else if (Array.isArray(json)) {
+        setSelectedStudentHistory(json);
+        setSelectedStudentOverallScore(0);
+      } else {
+        setSelectedStudentHistory([]);
+        setSelectedStudentOverallScore(0);
+      }
+    } catch (e) {
+      console.error(e);
+      setSelectedStudentHistory([]);
+    }
+  };
+
   const handleLogout = () => {
     sessionStorage.removeItem("focusai_role");
     sessionStorage.removeItem("focusai_token");
@@ -756,7 +781,7 @@ export default function AdminDashboard() {
                                 </td>
                                 <td className="py-4 px-4 text-right">
                                   <button onClick={() => {
-                                    alert("To view a detailed timeline for this student, please select one of their past sessions from the sidebar first.");
+                                    handleSubjectStudentClick(subj.subject_id, student.username);
                                   }} className="text-blue-500 hover:text-blue-700 text-[10px] font-bold uppercase tracking-wider bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors">
                                     View Details
                                   </button>

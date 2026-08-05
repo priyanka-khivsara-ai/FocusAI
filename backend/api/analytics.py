@@ -119,6 +119,10 @@ async def get_historical_analytics(
             "timeline": timeline
         }
 
+from fastapi import Depends
+from database.connection import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
+
 @router.get("/host/subjects")
 async def get_host_subjects_analytics(username: str, db: AsyncSession = Depends(get_db)):
     try:

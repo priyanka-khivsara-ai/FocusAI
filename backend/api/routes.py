@@ -276,3 +276,88 @@ async def get_user_timeline(session_id: str, user_id: str):
     except Exception as e:
         print(f"Error fetching user timeline: {e}")
         return {"timeline": [], "overall_score": 0}
+
+@router.get("/user_subject_timeline")
+async def get_user_subject_timeline(project_id: int, user_id: str):
+    try:
+        async with SessionLocal() as db:
+            query = text("""
+                SELECT a.timestamp, a.attention_score as focus_score, e.emotion as mood, a.session_id
+                FROM attention_timeline a
+                LEFT JOIN emotion_timeline e ON a.timestamp = e.timestamp AND a.session_id = e.session_id
+                JOIN sessions s ON s.id = a.session_id
+                WHERE s.project_id = :project_id AND a.user_id = :user_id
+                ORDER BY a.timestamp ASC
+            """)
+            result = await db.execute(query, {"project_id": project_id, "user_id": user_id})
+            records = result.fetchall()
+            
+            if not records:
+                return {"timeline": [], "overall_score": 0}
+
+            timeline = []
+            start_time = records[0].timestamp
+            block_start = start_time
+            current_block_scores = []
+            current_block_moods = []
+            all_scores = []
+            
+            for r in records:
+                all_scores.append(r.focus_score)
+                
+                # If 5 minutes have passed
+                if r.timestamp - block_start >= timedelta(minutes=5):
+                    if current_block_scores:
+                        avg_score = sum(current_block_scores) / len(current_block_scores)
+                        most_frequent_mood = max(set(current_block_moods), key=current_block_moods.count) if current_block_moods else "Neutral"
+                        
+                        if 0 in current_block_scores:
+                            status = "Spoofing Detected"
+                            avg_score = 0
+                        elif avg_score < 60:
+                            status = "Distracted"
+                        else:
+                            status = most_frequent_mood
+                        
+                        timeline.append({
+                            "time": block_start.isoformat(),
+                            "end_time": r.timestamp.isoformat(),
+                            "status": status,
+                            "mood": most_frequent_mood,
+                            "focus_score": round(avg_score)
+                        })
+                    
+                    block_start = r.timestamp
+                    current_block_scores = []
+                    current_block_moods = []
+                
+                current_block_scores.append(r.focus_score)
+                current_block_moods.append(r.mood or "Neutral")
+                
+            # Add the final block
+            if current_block_scores:
+                avg_score = sum(current_block_scores) / len(current_block_scores)
+                most_frequent_mood = max(set(current_block_moods), key=current_block_moods.count) if current_block_moods else "Neutral"
+                
+                if 0 in current_block_scores:
+                    status = "Spoofing Detected"
+                    avg_score = 0
+                elif avg_score < 60:
+                    status = "Distracted"
+                else:
+                    status = most_frequent_mood
+                
+                timeline.append({
+                    "time": block_start.isoformat(),
+                    "end_time": records[-1].timestamp.isoformat(),
+                    "status": status,
+                    "mood": most_frequent_mood,
+                    "focus_score": round(avg_score)
+                })
+                
+            overall_score = round(sum(all_scores) / len(all_scores)) if all_scores else 0
+            
+            return {"timeline": timeline, "overall_score": overall_score}
+    except Exception as e:
+        print(f"Error fetching user subject timeline: {e}")
+        return {"timeline": [], "overall_score": 0}
