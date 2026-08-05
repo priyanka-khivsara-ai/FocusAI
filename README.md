@@ -141,4 +141,12 @@ npm run dev
 ```
 *(The web portal runs at `http://localhost:3000`)*
 
+## Continuous Presence Verification (Anti-Spoofing)
+
+FocusAI now performs passive liveness verification alongside attention scoring. It reuses the existing MediaPipe landmark stream—no video frames, screenshots, or second face detector are sent to the server. An eight-second rolling window evaluates blink timing, landmark motion, head/gaze variation, lip activity, a landmark optical-flow approximation, frozen frames, and replay signatures.
+
+The dashboard shows a Live Presence Score, **Live / Suspicious / Spoof Detected** status, alert indicator, and short score timeline. Results are stored in the `presence_timeline` TimescaleDB hypertable and are available at `/api/presence/latest` and `/api/presence/timeline`.
+
+This is a risk signal, not identity proof: low confidence never means a confirmed spoof. See [SPOOF_DETECTION_TECHNICAL_REPORT.md](./SPOOF_DETECTION_TECHNICAL_REPORT.md) for algorithm, deployment, privacy, and test guidance.
+
 

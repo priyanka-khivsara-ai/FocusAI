@@ -3,15 +3,26 @@ import numpy as np
 from sqlalchemy import text
 
 from database.connection import SessionLocal
-from models.timescale import AttentionTimeline, EmotionTimeline, FacialMetrics
+from models.timescale import AttentionTimeline, EmotionTimeline, FacialMetrics, PresenceTimeline, Event
 from utils.math import calculate_head_pose, detect_gaze, calculate_ear, get_eye_center
 from services.emotion.analyzer import (
     calculate_eyebrow_position, detect_lip_movement, detect_yawn, detect_smile,
     detect_facial_tension, detect_emotion, record_emotion_change, emotion_history
 )
 from services.attention.scorer import calculate_final_score, handle_no_face, reset_no_face_state, history_window
+from services.presence_verification import PresenceService
 
 router = APIRouter()
+presence_service = PresenceService(window_seconds=8.0)
+
+
+def flatten_landmarks(data):
+    """Create a compact motion vector from landmarks already sent by the browser."""
+    vector = []
+    for field in ("right_eye", "left_eye", "left_eyebrow", "right_eyebrow", "mouth", "irises"):
+        for point in data.get(field) or []:
+            vector.extend((float(point.get("x", 0)), float(point.get("y", 0)), float(point.get("z", 0))))
+    return tuple(vector)
 
 @router.websocket("/ws/user/{user_id}/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str):
@@ -34,6 +45,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                 is_moving_lips, is_yawning, is_tense = False, False, False
                 smile_type = "None"
                 mood = "Absent"
+                gaze_x, gaze_y = 0.0, 0.0
+                presence_landmarks = ()
                 
             elif data and "right_eye" in data:
                 reset_no_face_state()
@@ -50,6 +63,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                 avg_ear = (calculate_ear(right_eye) + calculate_ear(left_eye)) / 2.0
                 
                 gaze_distracted = False
+                gaze_x, gaze_y = 0.0, 0.0
                 if data.get('irises'):
                     iris_a = FakePoint(data['irises'][0])
                     iris_b = FakePoint(data['irises'][1])
@@ -65,6 +79,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                     
                     avg_rx = (r_rx + l_rx) / 2.0
                     avg_ry = (r_ry + l_ry) / 2.0
+                    gaze_x, gaze_y = avg_rx, avg_ry
                     
                     # Increased sensitivity: a ratio of > 0.12 means the iris has moved significantly off-center horizontally
                     if abs(avg_rx) > 0.12 or abs(avg_ry) > 0.08:
@@ -140,10 +155,19 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                     "tension_score": tension_score if 'tension_score' in locals() else 0,
                     "mood": mood,
                 }
+                presence_landmarks = flatten_landmarks(data)
                 if 'emotion_change' in locals() and emotion_change:
                     extra_features["emotion_changed_at"] = emotion_change["timestamp"]
                     extra_features["previous_mood"] = emotion_change["previous_emotion"]
             
+            presence_result = presence_service.evaluate(
+                user_id, session_id,
+                no_face=bool(data and data.get("no_face")),
+                ear=avg_ear, mar=mar, pitch=pitch, yaw=yaw, roll=roll,
+                gaze_x=gaze_x, gaze_y=gaze_y, lip_movement=is_moving_lips,
+                landmarks=presence_landmarks,
+            )
+
             try:
                 async with SessionLocal() as db:
                     s_id = session_id
@@ -177,13 +201,32 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                         yawning=is_yawning,
                         lip_movement=is_moving_lips
                     )
+                    presence_rec = PresenceTimeline(
+                        session_id=s_id,
+                        user_id=user_id,
+                        presence_score=presence_result.score,
+                        presence_status=presence_result.status,
+                        confidence=presence_result.confidence,
+                        blink_count=presence_result.blink_count,
+                        facial_motion=presence_result.facial_motion,
+                        optical_flow=presence_result.optical_flow,
+                        frozen_seconds=presence_result.frozen_seconds,
+                        replay_detected=presence_result.replay_detected,
+                    )
                     
-                    db.add_all([att_rec, emo_rec, face_rec])
+                    db.add_all([att_rec, emo_rec, face_rec, presence_rec])
+                    if presence_result.spoof_alert:
+                        db.add(Event(
+                            session_id=s_id, user_id=user_id,
+                            event_type="presence_spoof_alert",
+                            confidence=presence_result.confidence,
+                            metadata_info={"status": presence_result.status, "score": presence_result.score},
+                        ))
                     await db.commit()
             except Exception as db_err:
                 print(f"Database insert error: {db_err}")
 
-            payload = {"attention_score": attention_score}
+            payload = {"attention_score": attention_score, "presence": presence_result.as_dict()}
             if data and "right_eye" in data:
                 payload["features"] = extra_features
                 payload["emotion_history"] = emotion_history[-10:]

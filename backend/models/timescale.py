@@ -79,3 +79,18 @@ class LivenessCheck(Base):
     challenge = Column(String, nullable=False)
     result = Column(String, nullable=False)
     latency = Column(Float, nullable=True)
+
+class PresenceTimeline(Base):
+    """Rolling passive-liveness results; no image or biometric template is stored."""
+    __tablename__ = "presence_timeline"
+    timestamp = Column(DateTime(timezone=True), primary_key=True, server_default=func.now(), nullable=False)
+    session_id = Column(String, primary_key=True, nullable=False)
+    user_id = Column(String, nullable=False, default="unknown")
+    presence_score = Column(Float, nullable=False)
+    presence_status = Column(String, nullable=False)
+    confidence = Column(Float, nullable=False)
+    blink_count = Column(Integer, nullable=True)
+    facial_motion = Column(Float, nullable=True)
+    optical_flow = Column(Float, nullable=True)
+    frozen_seconds = Column(Float, nullable=True)
+    replay_detected = Column(Boolean, default=False)

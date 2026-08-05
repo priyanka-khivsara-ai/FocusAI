@@ -33,7 +33,8 @@ async def init_models():
             "body_metrics",
             "events",
             "warnings",
-            "liveness_checks"
+            "liveness_checks",
+            "presence_timeline"
         ]
         
         for table in hypertables:

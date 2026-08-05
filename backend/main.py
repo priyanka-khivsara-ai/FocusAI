@@ -9,6 +9,7 @@ from api.sessions import router as sessions_router
 from api.taxonomy import router as taxonomy_router
 from api.routes import router as routes_router
 from api.analytics import router as analytics_router
+from api.presence import router as presence_router
 from websocket.stream import router as websocket_router
 
 app = FastAPI(title="FocusAI Cognitive Telemetry Engine")
@@ -29,6 +30,7 @@ app.include_router(sessions_router, prefix="/api/sessions", tags=["sessions"])
 app.include_router(taxonomy_router, prefix="/api/taxonomy", tags=["taxonomy"])
 app.include_router(routes_router, prefix="/api", tags=["telemetry"])
 app.include_router(analytics_router, prefix="/api/analytics", tags=["analytics"])
+app.include_router(presence_router, prefix="/api/presence", tags=["presence"])
 app.include_router(websocket_router)
 
 @app.get("/")

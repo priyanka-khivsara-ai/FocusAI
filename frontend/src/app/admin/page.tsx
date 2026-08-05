@@ -15,6 +15,7 @@ export default function AdminDashboard() {
   const [data, setData] = useState([]);
   const [summaryData, setSummaryData] = useState({ focused_mins: 0, distracted_mins: 0 });
   const [latestData, setLatestData] = useState([]);
+  const [presenceData, setPresenceData] = useState<Record<string, any>>({});
   const [selectedUser, setSelectedUser] = useState("all");
   const [timeRange, setTimeRange] = useState("30d");
   const [historicalData, setHistoricalData] = useState<any>(null);
@@ -93,6 +94,9 @@ export default function AdminDashboard() {
         // Sort distracted on top (Ascending focus score)
         const sortedData = json.sort((a: any, b: any) => a.focus_score - b.focus_score);
         setLatestData(sortedData);
+        const presenceRes = await fetch(`http://${window.location.hostname}:8000/api/presence/latest?session_id=${activeSessionId}`);
+        const presenceJson = await presenceRes.json();
+        setPresenceData(Object.fromEntries((Array.isArray(presenceJson) ? presenceJson : []).map((item: any) => [item.user_id, item])));
       } catch (e) {
         console.error("Failed to fetch latest telemetry:", e);
       }
@@ -564,6 +568,7 @@ export default function AdminDashboard() {
                       <th className="p-4 font-bold pl-6">User ID</th>
                       <th className="p-4 font-bold">Status</th>
                       <th className="p-4 font-bold">Focus</th>
+                      <th className="p-4 font-bold">Presence</th>
                       <th className="p-4 font-bold">Mood</th>
                       <th className="p-4 font-bold">Tense</th>
                       <th className="p-4 font-bold">Eyebrows</th>
@@ -573,7 +578,7 @@ export default function AdminDashboard() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {latestData.length === 0 && (
-                       <tr><td colSpan={8} className="p-12 text-center text-slate-400 bg-slate-50/50">No active streams.</td></tr>
+                       <tr><td colSpan={9} className="p-12 text-center text-slate-400 bg-slate-50/50">No active streams.</td></tr>
                     )}
                     {latestData.length > 0 && latestData.map((row: any, i) => (
                       <tr key={i} className="hover:bg-slate-50 transition-colors group">
@@ -587,6 +592,16 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         <td className="p-4 font-black text-slate-800">{row.focus_score}%</td>
+                        <td className="p-4">
+                          {presenceData[row.user_id] ? (
+                            <div className="flex flex-col gap-1">
+                              <span className={`px-2 py-1 rounded-md text-xs font-bold w-fit ${presenceData[row.user_id].status === 'LIVE' ? 'bg-emerald-100 text-emerald-700' : presenceData[row.user_id].status.includes('SPOOF') || presenceData[row.user_id].status.includes('REPLAY') ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {presenceData[row.user_id].status === 'LIVE' ? '🟢 Live' : presenceData[row.user_id].status.includes('SPOOF') || presenceData[row.user_id].status.includes('REPLAY') ? '🔴 Spoof' : '🟡 Suspicious'}
+                              </span>
+                              <span className="text-xs font-bold text-slate-600">{presenceData[row.user_id].score}%</span>
+                            </div>
+                          ) : <span className="text-slate-400 text-sm">Calibrating</span>}
+                        </td>
                         <td className="p-4 font-medium text-slate-600">{row.mood}</td>
                         <td className="p-4">
                           {row.is_tense ? <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}

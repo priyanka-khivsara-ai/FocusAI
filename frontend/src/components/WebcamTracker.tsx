@@ -33,6 +33,15 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState("Initializing Edge AI...");
   const [score, setScore] = useState<string>("--");
+  type Presence = {
+    score: number;
+    status: "LIVE" | "LOW_CONFIDENCE" | "PHOTO_SPOOF" | "VIDEO_REPLAY" | "SCREEN_REPLAY" | "UNKNOWN";
+    confidence: number;
+    frozen_seconds: number;
+    spoof_alert: boolean;
+  };
+  const [presence, setPresence] = useState<Presence | null>(null);
+  const [presenceTimeline, setPresenceTimeline] = useState<number[]>([]);
 
   // Extended facial-feature telemetry coming back from the backend
   type Features = {
@@ -89,7 +98,14 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
       ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/user/${encodeURIComponent(userId)}/${encodeURIComponent(sessionId)}`);
       
       ws.onmessage = (event) => {
-        // Handle message
+        const response = JSON.parse(event.data);
+        if (response.attention_score) setScore(response.attention_score);
+        if (response.presence) {
+          setPresence(response.presence);
+          setPresenceTimeline((timeline) => [...timeline.slice(-39), response.presence.score]);
+        }
+        if (response.features) setFeatures(response.features);
+        if (response.emotion_history) setEmotionHistory(response.emotion_history);
       };
       ws.onopen = async () => {
         setStatus("Accessing Camera...");
@@ -202,6 +218,38 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
       <div className="w-full bg-slate-50 rounded-xl p-6 border border-slate-200 flex items-center justify-center gap-3">
         <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
         <p className="text-sm font-bold text-slate-700 uppercase tracking-wider">Secure Telemetry Active</p>
+      </div>
+
+      <div className="w-full bg-slate-50 rounded-xl p-6 border border-slate-200 mt-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Continuous Presence Verification</p>
+            <p className="text-3xl font-black text-slate-800 mt-1">{presence ? `${presence.score}%` : "Calibrating…"}</p>
+            <p className="text-xs text-slate-500 mt-1">Passive landmark analysis; no camera frames leave this device.</p>
+          </div>
+          {presence && (
+            <span className={"px-3 py-1 rounded-full text-xs font-bold " + (
+              presence.status === "LIVE" ? "bg-emerald-100 text-emerald-700" :
+              presence.status === "PHOTO_SPOOF" || presence.status === "VIDEO_REPLAY" || presence.status === "SCREEN_REPLAY" ? "bg-rose-100 text-rose-700" :
+              "bg-amber-100 text-amber-700"
+            )}>
+              {presence.status === "LIVE" ? "🟢 Live" : presence.status.includes("SPOOF") || presence.status.includes("REPLAY") ? "🔴 Spoof Detected" : "🟡 Suspicious"}
+            </span>
+          )}
+        </div>
+        {presence?.spoof_alert && (
+          <p className="mt-3 rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm font-semibold text-rose-700">
+            Spoof alert: the stream appears frozen or replayed. Please verify your camera connection.
+          </p>
+        )}
+        <div className="mt-4">
+          <div className="flex justify-between text-[10px] uppercase tracking-wider text-slate-400 mb-2"><span>Presence score timeline</span><span>{presence ? `${Math.round(presence.confidence * 100)}% confidence` : ""}</span></div>
+          <div className="h-16 flex items-end gap-px rounded-lg bg-white border border-slate-200 px-2 py-1">
+            {presenceTimeline.length === 0 ? <span className="m-auto text-xs text-slate-400">Collecting an 8-second baseline…</span> : presenceTimeline.map((value, index) => (
+              <div key={index} title={`${value}%`} className={"flex-1 rounded-t " + (value >= 55 ? "bg-emerald-400" : "bg-amber-400")} style={{ height: `${Math.max(4, value)}%` }} />
+            ))}
+          </div>
+        </div>
       </div>
       
     </div>
