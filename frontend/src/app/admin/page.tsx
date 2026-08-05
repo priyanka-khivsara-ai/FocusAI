@@ -454,7 +454,7 @@ export default function AdminDashboard() {
             <span className="font-semibold text-sm">Session Roster</span>
           </button>
           
-          {(role === "Host" || role === "Admin") && (
+          {role === "Host" && (
             <button onClick={() => setActiveTab("my-subjects")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'my-subjects' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
               <BookOpen size={18} />
               <span className="font-semibold text-sm">{industryMode === 'Education' ? 'My Subjects' : 'My Projects'}</span>
