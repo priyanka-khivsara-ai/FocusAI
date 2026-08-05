@@ -118,3 +118,51 @@ async def get_historical_analytics(
             "distracted_mins": distracted_mins,
             "timeline": timeline
         }
+
+@router.get("/host/subjects")
+async def get_host_subjects_analytics(username: str, db: AsyncSession = Depends(get_db)):
+    try:
+        query = text("""
+            SELECT 
+                p.id as project_id,
+                p.name as project_name,
+                u.username as student_username,
+                AVG(a.attention_score) as avg_attention,
+                MIN(a.attention_score) as min_attention,
+                STRING_AGG(DISTINCT e.emotion, ', ') as moods
+            FROM projects p
+            JOIN enrollments he ON he.project_id = p.id
+            JOIN users h ON h.id = he.user_id AND h.username = :username
+            JOIN enrollments se ON se.project_id = p.id
+            JOIN users u ON u.id = se.user_id AND u.username != :username
+            LEFT JOIN sessions s ON s.project_id = p.id
+            LEFT JOIN attention_timeline a ON a.user_id = u.username AND a.session_id = s.id
+            LEFT JOIN emotion_timeline e ON e.user_id = u.username AND e.session_id = s.id AND e.timestamp = a.timestamp
+            GROUP BY p.id, p.name, u.username
+        """)
+        result = await db.execute(query, {"username": username})
+        records = result.fetchall()
+        
+        subjects_map = {}
+        for r in records:
+            pid = r.project_id
+            if pid not in subjects_map:
+                subjects_map[pid] = {
+                    "subject_id": pid,
+                    "subject_name": r.project_name,
+                    "students": []
+                }
+            
+            spoofed = "YES" if (r.min_attention == 0 or (r.moods and "Spoofing" in r.moods)) else "No"
+            avg = round(r.avg_attention) if r.avg_attention is not None else None
+            
+            subjects_map[pid]["students"].append({
+                "username": r.student_username,
+                "avg_attention": avg,
+                "spoofed": spoofed
+            })
+            
+        return list(subjects_map.values())
+    except Exception as e:
+        print(f"Error fetching host subjects analytics: {e}")
+        return []

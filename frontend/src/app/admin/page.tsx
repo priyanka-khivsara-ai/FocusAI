@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import ReactECharts from "echarts-for-react";
-import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle, Trash2, History } from "lucide-react";
+import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle, Trash2, History, BookOpen } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
@@ -43,6 +43,7 @@ export default function AdminDashboard() {
   const [selectedStudentHistory, setSelectedStudentHistory] = useState<any[] | null>(null);
   const [selectedStudentName, setSelectedStudentName] = useState<string>("");
   const [selectedStudentOverallScore, setSelectedStudentOverallScore] = useState<number>(0);
+  const [hostSubjects, setHostSubjects] = useState<any[]>([]);
 
   useEffect(() => {
     const savedRole = sessionStorage.getItem("focusai_role");
@@ -176,6 +177,22 @@ export default function AdminDashboard() {
     };
     fetchHistory();
   }, [role, refreshKey]);
+
+  useEffect(() => {
+    if (activeTab === "my-subjects") {
+      const fetchHostSubjects = async () => {
+        const username = sessionStorage.getItem("focusai_user_id");
+        if (username) {
+          try {
+            const res = await fetch(`http://${window.location.hostname}:8000/api/analytics/host/subjects?username=${username}`);
+            const json = await res.json();
+            setHostSubjects(json);
+          } catch(e) {}
+        }
+      };
+      fetchHostSubjects();
+    }
+  }, [activeTab]);
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -412,6 +429,13 @@ export default function AdminDashboard() {
             <span className="font-semibold text-sm">Session Roster</span>
           </button>
           
+          {(role === "Host" || role === "Admin") && (
+            <button onClick={() => setActiveTab("my-subjects")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'my-subjects' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <BookOpen size={18} />
+              <span className="font-semibold text-sm">{industryMode === 'Education' ? 'My Subjects' : 'My Projects'}</span>
+            </button>
+          )}
+          
           {role === "Admin" && (
             <>
               <button onClick={() => setActiveTab("directory")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'directory' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
@@ -452,6 +476,7 @@ export default function AdminDashboard() {
                 {activeTab === 'analytics' && "System-wide live cognitive insights."}
                 {activeTab === 'historical' && "System-wide historical cognitive trends."}
                 {activeTab === 'monitoring' && "Real-time biometric telemetry stream."}
+                {activeTab === 'my-subjects' && "Overview of enrolled students and their attention per subject."}
                 {activeTab === 'agent' && "Chat with the LangGraph RAG Assistant."}
                 {activeTab === 'users' && "Bulk upload and manage user access."}
               </p>
@@ -680,6 +705,72 @@ export default function AdminDashboard() {
               </div>
             </div>
             
+          )}
+
+          {activeTab === "my-subjects" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {hostSubjects.length === 0 ? (
+                <div className="bg-white p-8 rounded-3xl border border-slate-100 text-center shadow-sm">
+                  <p className="text-slate-500 font-bold">No subjects assigned yet.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-8">
+                  {hostSubjects.map((subj: any) => (
+                    <div key={subj.subject_id} className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                      <h3 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
+                        <BookOpen className="text-blue-500" size={24} />
+                        {subj.subject_name}
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="border-b-2 border-slate-100 text-xs text-slate-400 uppercase tracking-widest">
+                              <th className="pb-3 px-4">Student</th>
+                              <th className="pb-3 px-4">Avg Attention</th>
+                              <th className="pb-3 px-4">Spoofing Detected</th>
+                              <th className="pb-3 px-4 text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {subj.students.length === 0 && (
+                               <tr><td colSpan={4} className="py-8 text-center text-slate-400 font-medium">No students enrolled.</td></tr>
+                            )}
+                            {subj.students.map((student: any) => (
+                              <tr key={student.username} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                <td className="py-4 px-4 font-bold text-slate-700">{student.username}</td>
+                                <td className="py-4 px-4">
+                                  {student.avg_attention !== null ? (
+                                    <span className={`font-black ${student.avg_attention >= 60 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                      {student.avg_attention}%
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">--</span>
+                                  )}
+                                </td>
+                                <td className="py-4 px-4">
+                                  {student.spoofed === "YES" ? (
+                                    <span className="text-[10px] uppercase tracking-wider bg-rose-100 text-rose-600 font-bold px-2 py-1 rounded-md">Yes</span>
+                                  ) : (
+                                    <span className="text-slate-400 text-sm font-medium">No</span>
+                                  )}
+                                </td>
+                                <td className="py-4 px-4 text-right">
+                                  <button onClick={() => {
+                                    alert("To view a detailed timeline for this student, please select one of their past sessions from the sidebar first.");
+                                  }} className="text-blue-500 hover:text-blue-700 text-[10px] font-bold uppercase tracking-wider bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors">
+                                    View Details
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {activeTab === "agent" && (
