@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import ReactECharts from "echarts-for-react";
-import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle, Trash2 } from "lucide-react";
+import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle, Trash2, History } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
@@ -13,12 +13,16 @@ export default function AdminDashboard() {
   // Data States
   const [activeSessionId, setActiveSessionId] = useState("");
   const [data, setData] = useState([]);
+  const [summaryData, setSummaryData] = useState({ focused_mins: 0, distracted_mins: 0 });
   const [latestData, setLatestData] = useState([]);
   const [selectedUser, setSelectedUser] = useState("all");
+  const [timeRange, setTimeRange] = useState("30d");
+  const [historicalData, setHistoricalData] = useState<any>(null);
   
   // Taxonomy States
   const [mySubjects, setMySubjects] = useState<any[]>([]);
   const [taxonomyTree, setTaxonomyTree] = useState<any[]>([]);
+  const [selectedProject, setSelectedProject] = useState<number>(0);
   const [directoryTree, setDirectoryTree] = useState<any[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   
@@ -35,7 +39,7 @@ export default function AdminDashboard() {
   const [registeredUsers, setRegisteredUsers] = useState<any[]>([]);
 
   useEffect(() => {
-    const savedRole = localStorage.getItem("focusai_role");
+    const savedRole = sessionStorage.getItem("focusai_role");
     if (!savedRole) {
       router.push("/");
       return;
@@ -48,13 +52,13 @@ export default function AdminDashboard() {
       setActiveTab("analytics");
     }
 
-    const savedMode = localStorage.getItem("focusai_industry") || "Education";
+    const savedMode = sessionStorage.getItem("focusai_industry") || "Education";
     setIndustryMode(savedMode);
   }, [router]);
 
   const handleIndustryChange = (mode: string) => {
     setIndustryMode(mode);
-    localStorage.setItem("focusai_industry", mode);
+    sessionStorage.setItem("focusai_industry", mode);
   };
 
   // Polling for Timeseries Charts (Admin only)
@@ -66,6 +70,10 @@ export default function AdminDashboard() {
         const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry?session_id=${activeSessionId}&user_id=${selectedUser}`);
         const json = await res.json();
         setData(json);
+        
+        const sumRes = await fetch(`http://${window.location.hostname}:8000/api/telemetry/summary?session_id=${activeSessionId}&user_id=${selectedUser}`);
+        const sumJson = await sumRes.json();
+        setSummaryData(sumJson);
       } catch (e) {
         console.error("Failed to fetch telemetry:", e);
       }
@@ -90,9 +98,19 @@ export default function AdminDashboard() {
       }
     };
     fetchLatest();
+    const fetchHistorical = async () => {
+      const projId = selectedProject || (document.getElementById('subject_select') as HTMLSelectElement)?.value || 0;
+      try {
+        const res = await fetch(`http://${window.location.hostname}:8000/api/analytics/historical?project_id=${projId}&time_range=${timeRange}${selectedUser !== 'all' ? `&user_id=${encodeURIComponent(selectedUser)}` : ''}`);
+        const json = await res.json();
+        setHistoricalData(json);
+      } catch(e) {}
+    };
+
+    fetchHistorical();
     const interval = setInterval(fetchLatest, 1000);
     return () => clearInterval(interval);
-  }, [activeTab, activeSessionId]);
+  }, [activeSessionId, timeRange, selectedUser, activeTab, selectedProject]);
 
   // Fetch Registered Users
   useEffect(() => {
@@ -127,7 +145,7 @@ export default function AdminDashboard() {
         }
         
         // Fetch allowed subjects for meeting creation
-        const username = localStorage.getItem("focusai_user_id"); // This is actually username
+        const username = sessionStorage.getItem("focusai_user_id"); // This is actually username
         if (username) {
           const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/my-subjects?username=${username}`);
           const json = await res.json();
@@ -142,7 +160,11 @@ export default function AdminDashboard() {
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim() || !activeSessionId) return;
+    if (!query.trim()) return;
+    if (!activeSessionId) {
+      alert("Please enter an Active Meeting Code in the sidebar first to query the database.");
+      return;
+    }
     
     const userMessage = query;
     setChatLog(prev => [...prev, { role: "user", content: userMessage }]);
@@ -189,8 +211,8 @@ export default function AdminDashboard() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("focusai_role");
-    localStorage.removeItem("focusai_token");
+    sessionStorage.removeItem("focusai_role");
+    sessionStorage.removeItem("focusai_token");
     router.push("/");
   };
 
@@ -208,7 +230,7 @@ export default function AdminDashboard() {
       });
       const data = await res.json();
       setActiveSessionId(data.session_id);
-      alert(`✅ Created Meeting: ${data.session_id}\n\nShare this link with students:\nhttp://${window.location.hostname}:3000/user?code=${data.session_id}`);
+      alert(`✅ Created Meeting: ${data.session_id}\n\nShare this link with participants:\nhttp://${window.location.hostname}:3000/user?code=${data.session_id}`);
     } catch (e) {
       alert("Error creating meeting");
     }
@@ -268,7 +290,7 @@ export default function AdminDashboard() {
             {mySubjects.length === 0 ? (
               <p className="text-xs text-red-400">You are not assigned to any subjects.</p>
             ) : (
-              <select id="subject_select" className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm">
+              <select id="subject_select" value={selectedProject} onChange={(e) => setSelectedProject(parseInt(e.target.value))} className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm">
                 {mySubjects.map(sub => (
                   <option key={sub.id} value={sub.id}>{sub.workspace_name} - {sub.name}</option>
                 ))}
@@ -296,10 +318,20 @@ export default function AdminDashboard() {
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {role === "Admin" && (
-            <button onClick={() => setActiveTab("analytics")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <LayoutDashboard size={18} />
-              <span className="font-semibold text-sm">Analytics</span>
-            </button>
+            <>
+              <button onClick={() => setActiveTab("analytics")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <LayoutDashboard size={18} />
+                <span className="font-semibold text-sm">Live Analytics</span>
+              </button>
+              <button onClick={() => setActiveTab("historical")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'historical' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <History size={18} />
+                <span className="font-semibold text-sm">Historical Stats</span>
+              </button>
+              <button onClick={() => setActiveTab("agent")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'agent' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <Bot size={18} />
+                <span className="font-semibold text-sm">AI Agent</span>
+              </button>
+            </>
           )}
           
           <button onClick={() => setActiveTab("monitoring")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'monitoring' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
@@ -344,7 +376,8 @@ export default function AdminDashboard() {
                 {activeTab.replace("-", " ")}
               </h2>
               <p className="text-slate-500 font-medium mt-1">
-                {activeTab === 'analytics' && "System-wide cognitive insights and trends."}
+                {activeTab === 'analytics' && "System-wide live cognitive insights."}
+                {activeTab === 'historical' && "System-wide historical cognitive trends."}
                 {activeTab === 'monitoring' && "Real-time biometric telemetry stream."}
                 {activeTab === 'agent' && "Chat with the LangGraph RAG Assistant."}
                 {activeTab === 'users' && "Bulk upload and manage user access."}
@@ -359,15 +392,16 @@ export default function AdminDashboard() {
                   <button onClick={() => handleIndustryChange("Corporate")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${industryMode === 'Corporate' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Corporate Mode</button>
                 </div>
               )}
-              {(activeTab === 'analytics' || activeTab === 'agent') && (
+              {(activeTab === 'historical' || activeTab === 'agent') && (
                  <select 
                    value={selectedUser}
                    onChange={(e) => setSelectedUser(e.target.value)}
                    className="bg-white border-2 border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm outline-none transition-colors"
                  >
                    <option value="all">System Average</option>
-                   <option value="user1">User: user1</option>
-                   <option value="user2">User: user2</option>
+                   {Array.from(new Map(taxonomyTree.flatMap(ws => ws.students || []).map(stu => [stu.username, stu])).values()).map((stu: any) => (
+                     <option key={stu.username} value={stu.username}>{industryMode === 'Education' ? 'Student' : 'Employee'}: {stu.username}</option>
+                   ))}
                  </select>
               )}
             </div>
@@ -378,7 +412,7 @@ export default function AdminDashboard() {
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               
               {/* Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
                    <div className="text-4xl font-black text-slate-800">
@@ -407,12 +441,27 @@ export default function AdminDashboard() {
                    </div>
                    <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
                 </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Engagement Time</h3>
+                   <div className="text-lg font-black text-slate-700 flex gap-4">
+                     <div className="flex flex-col items-center">
+                       <span className="text-emerald-500">{summaryData.focused_mins}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Focused</span>
+                     </div>
+                     <div className="w-px bg-slate-200"></div>
+                     <div className="flex flex-col items-center">
+                       <span className="text-rose-500">{summaryData.distracted_mins}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Distracted</span>
+                     </div>
+                   </div>
+                </div>
               </div>
 
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
-                  Focus Trend
+                  Live Focus Trend
                 </h3>
                 {data.length > 0 ? (
                   <ReactECharts option={scoreOption} style={{ height: "350px", width: "100%" }} />
@@ -422,9 +471,86 @@ export default function AdminDashboard() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                    <h3 className="font-bold text-slate-800 mb-4">Mood Distribution</h3>
+                    <h3 className="font-bold text-slate-800 mb-4">Live Mood Distribution</h3>
                     <ReactECharts option={moodOption} style={{ height: "250px", width: "100%" }} />
                  </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "historical" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {/* Time Range Selector */}
+              <div className="flex gap-3">
+                {['1d', '7d', '30d'].map(range => (
+                  <button 
+                    key={range}
+                    onClick={() => setTimeRange(range)}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${timeRange === range ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}`}
+                  >
+                    Last {range.replace('d', ' Days')}
+                  </button>
+                ))}
+              </div>
+
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
+                   <div className="text-4xl font-black text-slate-800">
+                     {historicalData ? `${historicalData.overall_avg_focus}%` : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Average attention in selected period</p>
+                </div>
+                
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Attention Loss / Deviation</h3>
+                   <div className={`text-4xl font-black ${historicalData && historicalData.focus_deviation < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                     {historicalData ? `${historicalData.focus_deviation > 0 ? '+' : ''}${historicalData.focus_deviation}%` : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Start of period vs End of period</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Primary Distractor</h3>
+                   <div className="text-2xl font-black text-amber-600">
+                     {historicalData ? historicalData.primary_emotion : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Engagement Time</h3>
+                   <div className="text-lg font-black text-slate-700 flex gap-4">
+                     <div className="flex flex-col items-center">
+                       <span className="text-emerald-500">{historicalData ? historicalData.focused_mins : 0}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Focused</span>
+                     </div>
+                     <div className="w-px bg-slate-200"></div>
+                     <div className="flex flex-col items-center">
+                       <span className="text-rose-500">{historicalData ? historicalData.distracted_mins : 0}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Distracted</span>
+                     </div>
+                   </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                  Focus Trend
+                </h3>
+                {historicalData && historicalData.timeline && historicalData.timeline.length > 0 ? (
+                  <ReactECharts option={{
+                    tooltip: { trigger: "axis", backgroundColor: "rgba(15, 23, 42, 0.9)", textStyle: {color: '#fff'} },
+                    xAxis: { type: "category", data: historicalData.timeline.map((d: any) => new Date(d.time).toLocaleDateString()), boundaryGap: false, axisLine: {lineStyle: {color: "#e2e8f0"}}, axisLabel: {color: "#94a3b8"} },
+                    yAxis: { type: "value", min: 0, max: 100, splitLine: {lineStyle: {type: "dashed", color: "#f1f5f9"}}, axisLabel: {color: "#94a3b8"} },
+                    series: [{ data: historicalData.timeline.map((d: any) => d.focus), type: "line", smooth: true, lineStyle: { width: 3, color: "#3b82f6" }, showSymbol: false, areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "rgba(59, 130, 246, 0.2)" }, { offset: 1, color: "rgba(59, 130, 246, 0)" }] } } }]
+                  }} style={{ height: "350px", width: "100%" }} />
+                ) : (
+                  <div className="h-[350px] flex items-center justify-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">Awaiting historical data...</div>
+                )}
               </div>
             </div>
           )}
@@ -446,37 +572,36 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {latestData.length === 0 ? (
+                    {latestData.length === 0 && (
                        <tr><td colSpan={8} className="p-12 text-center text-slate-400 bg-slate-50/50">No active streams.</td></tr>
-                    ) : (
-                      latestData.map((row: any, i) => (
-                        <tr key={i} className="hover:bg-slate-50 transition-colors group">
-                          <td className="p-4 pl-6 font-bold flex items-center gap-3 text-slate-700">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping"></span>
-                            {row.user_id}
-                          </td>
-                          <td className="p-4">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${row.status === 'Attentive' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                              {row.status}
-                            </span>
-                          </td>
-                          <td className="p-4 font-black text-slate-800">{row.focus_score}%</td>
-                          <td className="p-4 font-medium text-slate-600">{row.mood}</td>
-                          <td className="p-4">
-                            {row.is_tense ? <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
-                          </td>
-                          <td className="p-4 text-slate-600 font-medium">
-                            {row.eyebrows}
-                          </td>
-                          <td className="p-4">
-                            {row.yawning ? <span className="bg-rose-100 text-rose-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
-                          </td>
-                          <td className="p-4">
-                            {row.lip_movement ? <span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md text-xs font-bold">Moving</span> : <span className="text-slate-400 text-sm">Still</span>}
-                          </td>
-                        </tr>
-                      ))
                     )}
+                    {latestData.length > 0 && latestData.map((row: any, i) => (
+                      <tr key={i} className="hover:bg-slate-50 transition-colors group">
+                        <td className="p-4 pl-6 font-bold flex items-center gap-3 text-slate-700">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping"></span>
+                          {row.user_id}
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${row.status === 'Attentive' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                            {row.status}
+                          </span>
+                        </td>
+                        <td className="p-4 font-black text-slate-800">{row.focus_score}%</td>
+                        <td className="p-4 font-medium text-slate-600">{row.mood}</td>
+                        <td className="p-4">
+                          {row.is_tense ? <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
+                        </td>
+                        <td className="p-4 text-slate-600 font-medium">
+                          {row.eyebrows}
+                        </td>
+                        <td className="p-4">
+                          {row.yawning ? <span className="bg-rose-100 text-rose-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
+                        </td>
+                        <td className="p-4">
+                          {row.lip_movement ? <span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md text-xs font-bold">Moving</span> : <span className="text-slate-400 text-sm">Still</span>}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -846,7 +971,11 @@ export default function AdminDashboard() {
               <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
                 <h3 className="text-xl font-black text-slate-800 mb-2">Automated Hierarchy Import</h3>
                 <p className="text-slate-500 text-sm mb-6">
-                  Upload an Excel (.xlsx) or CSV file containing <strong>Course_Name, Subject_Name, Faculty_Name, Faculty_Email, Student_Name, Student_Email</strong> to automatically build your entire directory.
+                {industryMode === 'Education' ? (
+                  <>Upload an Excel (.xlsx) or CSV file containing <strong>Course_Name, Subject_Name, Faculty_Name, Faculty_Email, Student_Name, Student_Email</strong> to automatically build your entire directory.</>
+                ) : (
+                  <>Upload an Excel (.xlsx) or CSV file containing <strong>Department_Name, Project_Name, Manager_Name, Manager_Email, Employee_Name, Employee_Email</strong> to automatically build your entire directory.</>
+                )}
                 </p>
                 <form onSubmit={async (e) => {
                   e.preventDefault();
@@ -937,7 +1066,7 @@ export default function AdminDashboard() {
 
                               {/* Students */}
                               <div>
-                                <h6 className="font-bold text-xs text-emerald-700 mb-2 uppercase tracking-widest bg-emerald-50 inline-block px-2 py-1 rounded">Enrolled Students</h6>
+                                <h6 className="font-bold text-xs text-emerald-700 mb-2 uppercase tracking-widest bg-emerald-50 inline-block px-2 py-1 rounded">Enrolled {industryMode === 'Education' ? 'Students' : 'Users'}</h6>
                                 <div className="space-y-1">
                                   {sub.students.length === 0 ? <p className="text-xs text-slate-400">None enrolled</p> : sub.students.map((stu: any) => (
                                     <div key={stu.id} className="text-sm font-semibold text-slate-700">{stu.username} <span className="text-slate-400 font-normal">({stu.email})</span></div>

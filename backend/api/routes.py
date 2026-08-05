@@ -81,6 +81,42 @@ async def get_telemetry(session_id: str, user_id: Optional[str] = None):
         print(f"Error fetching telemetry: {e}")
         return []
 
+@router.get("/telemetry/summary")
+async def get_telemetry_summary(session_id: str, user_id: Optional[str] = None):
+    try:
+        async with SessionLocal() as db:
+            if user_id and user_id != "all":
+                query = text("""
+                    SELECT 
+                        COUNT(CASE WHEN attention_score >= 70 THEN 1 END) as focused_secs,
+                        COUNT(CASE WHEN attention_score < 70 THEN 1 END) as distracted_secs
+                    FROM attention_timeline 
+                    WHERE user_id = :uid AND session_id = :session_id
+                """)
+                result = await db.execute(query, {"uid": user_id, "session_id": session_id})
+            else:
+                query = text("""
+                    SELECT 
+                        COUNT(CASE WHEN a.attention_score >= 70 THEN 1 END) as focused_secs,
+                        COUNT(CASE WHEN a.attention_score < 70 THEN 1 END) as distracted_secs
+                    FROM attention_timeline a
+                    JOIN users u ON a.user_id = u.username
+                    JOIN roles r ON u.role_id = r.id
+                    WHERE r.name = 'User' AND a.session_id = :session_id
+                """)
+                result = await db.execute(query, {"session_id": session_id})
+            
+            row = result.fetchone()
+            if row:
+                return {
+                    "focused_mins": round((row.focused_secs or 0) / 60),
+                    "distracted_mins": round((row.distracted_secs or 0) / 60)
+                }
+            return {"focused_mins": 0, "distracted_mins": 0}
+    except Exception as e:
+        print(f"Error fetching telemetry summary: {e}")
+        return {"focused_mins": 0, "distracted_mins": 0}
+
 @router.get("/telemetry/latest")
 async def get_latest_telemetry(session_id: str):
     try:

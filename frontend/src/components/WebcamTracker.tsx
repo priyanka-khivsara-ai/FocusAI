@@ -85,13 +85,12 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
       console.error = originalError; // Restore normal errors
 
       setStatus("Connecting to Backend Server...");
-      const userId = localStorage.getItem("focusai_user_id") || "unknown";
-      ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/user/${userId}/${sessionId}`);
+      const userId = sessionStorage.getItem("focusai_user_id") || "unknown";
+      ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/user/${encodeURIComponent(userId)}/${encodeURIComponent(sessionId)}`);
       
       ws.onmessage = (event) => {
-        // We receive data from backend but WE DO NOT SHOW IT in the User Portal for privacy!
+        // Handle message
       };
-
       ws.onopen = async () => {
         setStatus("Accessing Camera...");
         try {

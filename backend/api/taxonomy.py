@@ -158,7 +158,7 @@ async def get_my_subjects(username: str):
     try:
         async with SessionLocal() as db:
             res = await db.execute(text("""
-                SELECT p.id, p.name, w.name as workspace_name
+                SELECT DISTINCT p.id, p.name, w.name as workspace_name
                 FROM projects p
                 JOIN enrollments e ON p.id = e.project_id
                 JOIN users u ON e.user_id = u.id
@@ -288,7 +288,7 @@ async def get_directory(industry: str = "Education"):
                 
                 # Workspace Level Students (not bound to a specific subject, but bound to workspace)
                 w_stu_res = await db.execute(text("""
-                    SELECT u.id, u.username, u.email FROM enrollments e
+                    SELECT DISTINCT u.id, u.username, u.email FROM enrollments e
                     JOIN users u ON e.user_id = u.id
                     JOIN roles r ON u.role_id = r.id
                     WHERE e.workspace_id = :wid AND e.project_id IS NULL AND r.name = 'User'
