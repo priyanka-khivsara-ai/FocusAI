@@ -368,11 +368,21 @@ export default function AdminDashboard() {
                 <button
                   key={s.session_id}
                   onClick={() => { setActiveSessionId(s.session_id); setActiveTab("monitoring"); }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors flex justify-between items-start ${
                     activeSessionId === s.session_id ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
                   }`}
                 >
-                  <span className="font-bold">{s.session_id}</span> <span className="opacity-60 text-[10px] block">{new Date(s.start_time).toLocaleDateString()}</span>
+                  <div>
+                    <span className="font-bold block">{s.session_id}</span>
+                    <span className="opacity-60 text-[10px] block mt-0.5">{new Date(s.start_time).toLocaleDateString()}</span>
+                  </div>
+                  {s.subject_name && (
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold max-w-[80px] truncate ${
+                      activeSessionId === s.session_id ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-300'
+                    }`}>
+                      {s.subject_name}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
