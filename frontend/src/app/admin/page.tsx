@@ -25,6 +25,7 @@ export default function AdminDashboard() {
   const [selectedProject, setSelectedProject] = useState<number>(0);
   const [directoryTree, setDirectoryTree] = useState<any[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [pastSessions, setPastSessions] = useState<any[]>([]);
   
   // Chat Agent State
   const [query, setQuery] = useState("");
@@ -37,6 +38,11 @@ export default function AdminDashboard() {
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [registeredUsers, setRegisteredUsers] = useState<any[]>([]);
+  
+  // Timeline Modal State
+  const [selectedStudentHistory, setSelectedStudentHistory] = useState<any[] | null>(null);
+  const [selectedStudentName, setSelectedStudentName] = useState<string>("");
+  const [selectedStudentOverallScore, setSelectedStudentOverallScore] = useState<number>(0);
 
   useEffect(() => {
     const savedRole = sessionStorage.getItem("focusai_role");
@@ -158,6 +164,19 @@ export default function AdminDashboard() {
     fetchTaxonomy();
   }, [activeTab, role, refreshKey, industryMode]);
 
+  // Fetch Past Sessions
+  useEffect(() => {
+    const fetchHistory = async () => {
+      const username = sessionStorage.getItem("focusai_user_id");
+      try {
+        const res = await fetch(`http://${window.location.hostname}:8000/api/sessions/history?role=${role}&username=${username}`);
+        const json = await res.json();
+        setPastSessions(json);
+      } catch (e) {}
+    };
+    fetchHistory();
+  }, [role, refreshKey]);
+
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
@@ -208,6 +227,32 @@ export default function AdminDashboard() {
       alert("Error: " + err.message);
     }
     setUploading(false);
+  };
+
+  const handleStudentClick = async (username: string) => {
+    setSelectedStudentName(username);
+    try {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry/user_timeline?session_id=${activeSessionId}&user_id=${username}`);
+      if (!res.ok) {
+         setSelectedStudentHistory([]);
+         alert(`Error ${res.status}: Did you restart your python backend?`);
+         return;
+      }
+      const json = await res.json();
+      if (json.timeline) {
+        setSelectedStudentHistory(json.timeline);
+        setSelectedStudentOverallScore(json.overall_score);
+      } else if (Array.isArray(json)) {
+        setSelectedStudentHistory(json);
+        setSelectedStudentOverallScore(0);
+      } else {
+        setSelectedStudentHistory([]);
+        setSelectedStudentOverallScore(0);
+      }
+    } catch (e) {
+      console.error(e);
+      setSelectedStudentHistory([]);
+    }
   };
 
   const handleLogout = () => {
@@ -314,6 +359,24 @@ export default function AdminDashboard() {
           >
             + Create New Meeting
           </button>
+          
+          <div className="mt-4 pt-4 border-t border-slate-800">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Past Sessions</label>
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {pastSessions.length === 0 && <p className="text-xs text-slate-500">No past sessions.</p>}
+              {pastSessions.map((s: any) => (
+                <button
+                  key={s.session_id}
+                  onClick={() => { setActiveSessionId(s.session_id); setActiveTab("monitoring"); }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    activeSessionId === s.session_id ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <span className="font-bold">{s.session_id}</span> <span className="opacity-60 text-[10px] block">{new Date(s.start_time).toLocaleDateString()}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
@@ -336,7 +399,7 @@ export default function AdminDashboard() {
           
           <button onClick={() => setActiveTab("monitoring")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'monitoring' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
             <Activity size={18} />
-            <span className="font-semibold text-sm">Live Monitoring</span>
+            <span className="font-semibold text-sm">Session Roster</span>
           </button>
           
           {role === "Admin" && (
@@ -576,7 +639,7 @@ export default function AdminDashboard() {
                        <tr><td colSpan={8} className="p-12 text-center text-slate-400 bg-slate-50/50">No active streams.</td></tr>
                     )}
                     {latestData.length > 0 && latestData.map((row: any, i) => (
-                      <tr key={i} className="hover:bg-slate-50 transition-colors group">
+                      <tr key={i} onClick={() => handleStudentClick(row.user_id)} className="hover:bg-slate-50 transition-colors group cursor-pointer">
                         <td className="p-4 pl-6 font-bold flex items-center gap-3 text-slate-700">
                           <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping"></span>
                           {row.user_id}
@@ -798,7 +861,6 @@ export default function AdminDashboard() {
               </div>
 
             </div>
-          )}
           )}
 
           {activeTab === "taxonomy" && role === "Admin" && (
@@ -1089,6 +1151,62 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+        
+        {/* Student History Modal */}
+        {selectedStudentHistory !== null && (
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-200 border border-slate-200">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/80 backdrop-blur-md">
+                <div>
+                  <h3 className="text-xl font-black text-slate-800">{selectedStudentName}</h3>
+                  <div className="flex items-center gap-3 mt-1">
+                    <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Session Timeline</p>
+                    <span className="text-slate-300">•</span>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Overall Score: <span className={selectedStudentOverallScore >= 60 ? 'text-emerald-500' : 'text-rose-500'}>{selectedStudentOverallScore}%</span></p>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedStudentHistory(null)} className="text-slate-400 hover:text-rose-500 p-2.5 rounded-full hover:bg-rose-100 transition-colors focus:outline-none">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto flex-1 bg-white">
+                {selectedStudentHistory.length === 0 ? (
+                  <div className="h-40 flex flex-col items-center justify-center text-slate-400">
+                    <History size={32} className="mb-3 opacity-20" />
+                    <p className="text-sm font-medium">No timeline data recorded yet.</p>
+                  </div>
+                ) : (
+                  <div className="relative border-l-2 border-slate-100 ml-4 space-y-8">
+                    {selectedStudentHistory.map((event: any, i: number) => (
+                      <div key={i} className="relative pl-6 group">
+                        <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-4 border-white shadow-sm transition-transform group-hover:scale-125 ${
+                          event.focus_score >= 60 ? 'bg-emerald-500' :
+                          event.focus_score === 0 ? 'bg-rose-600' : 'bg-amber-500'
+                        }`}></div>
+                        
+                        <div className="flex flex-col bg-slate-50/50 p-3 rounded-xl border border-slate-50 group-hover:border-slate-100 transition-colors">
+                          <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">
+                            {new Date(event.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {event.end_time && ` - ${new Date(event.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                          </span>
+                          <div className="mt-1 flex items-center gap-2">
+                            <span className={`text-sm font-bold ${
+                              event.focus_score >= 60 ? 'text-emerald-600' :
+                              event.focus_score === 0 ? 'text-rose-600' : 'text-amber-600'
+                            }`}>
+                              {event.status}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

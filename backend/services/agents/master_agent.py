@@ -61,13 +61,50 @@ def get_agent(session_id: str):
         except Exception as e:
             return f"Database error: {str(e)}"
 
+    @tool
+    async def get_student_summary() -> str:
+        """
+        Retrieves a high-level summary of every student in the session, including their average focus score, 
+        their detected moods, and critically, whether they were caught spoofing (cheating).
+        Use this tool first to get a broad overview of the meeting and to answer questions about who spoofed.
+        """
+        try:
+            async with SessionLocal() as db:
+                query = text("""
+                    SELECT a.user_id, 
+                           AVG(a.attention_score) as avg_score,
+                           MIN(a.attention_score) as min_score,
+                           STRING_AGG(DISTINCT e.emotion, ', ') as moods
+                    FROM attention_timeline a
+                    LEFT JOIN emotion_timeline e ON a.timestamp = e.timestamp AND a.session_id = e.session_id
+                    WHERE a.session_id = :session_id
+                    GROUP BY a.user_id
+                """)
+                result = await db.execute(query, {"session_id": session_id})
+                records = result.fetchall()
+                
+                if not records:
+                    return "No data found for this session."
+                
+                output = []
+                for r in records:
+                    moods = r.moods or "Neutral"
+                    spoofed = "YES (Spoofing Detected)" if r.min_score == 0 or "Spoofing" in moods else "No"
+                    output.append(f"Student: {r.user_id} | Avg Focus: {round(r.avg_score)}/100 | Spoofing Detected? {spoofed} | Moods: {moods}")
+                
+                return "\n".join(output)
+        except Exception as e:
+            return f"Database error: {str(e)}"
+
     llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
-    tools = [query_recent_telemetry]
+    tools = [query_recent_telemetry, get_student_summary]
     
     system_prompt = (
-        "You are an AI data analyst for FocusAI. You have access to ONLY ONE tool: `query_recent_telemetry`. "
+        "You are an AI data analyst for FocusAI. You have access to tools to query the database. "
+        "Use `get_student_summary` to answer questions about overall performance, who was in the meeting, and who engaged in spoofing/cheating. "
+        "Use `query_recent_telemetry` only if asked for a moment-by-moment chronological timeline. "
         "DO NOT use or attempt to call any other tools such as `brave_search`. "
-        "Answer the user's questions based ONLY on the data returned by your tool."
+        "Answer the user's questions based ONLY on the data returned by your tools."
     )
     
     # create_react_agent builds a StateGraph under the hood

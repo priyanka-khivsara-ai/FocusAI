@@ -90,8 +90,8 @@ async def get_historical_analytics(
         if dev_row:
             if dev_row.start_avg and dev_row.end_avg:
                 deviation = round(dev_row.end_avg - dev_row.start_avg, 1)
-            focused_mins = round((dev_row.focused_secs or 0) / 60)
-            distracted_mins = round((dev_row.distracted_secs or 0) / 60)
+            focused_mins = round((dev_row.focused_secs or 0) / 3600)
+            distracted_mins = round((dev_row.distracted_secs or 0) / 3600)
 
         # Get timeline data (group by hour or day depending on time_range)
         trunc_unit = "hour" if days <= 7 else "day"

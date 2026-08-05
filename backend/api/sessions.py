@@ -54,3 +54,41 @@ async def get_active_sessions(db: AsyncSession = Depends(get_db)):
         return [{"session_id": s.id, "start_time": s.start_time} for s in sessions]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+from fastapi import Query
+from models.relational import User, Enrollment
+
+@router.get("/history")
+async def get_sessions_history(
+    username: str = Query(None),
+    role: str = Query("Admin"),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        if role == "Admin":
+            query = select(Session).order_by(Session.start_time.desc()).limit(50)
+            result = await db.execute(query)
+            sessions = result.scalars().all()
+        else:
+            if not username:
+                return []
+            
+            u_res = await db.execute(select(User).where(User.username == username))
+            user = u_res.scalar_one_or_none()
+            if not user:
+                return []
+            
+            enr_res = await db.execute(select(Enrollment.project_id).where(Enrollment.user_id == user.id))
+            project_ids = [r for r in enr_res.scalars().all() if r is not None]
+            
+            if not project_ids:
+                return []
+                
+            query = select(Session).where(Session.project_id.in_(project_ids)).order_by(Session.start_time.desc()).limit(50)
+            result = await db.execute(query)
+            sessions = result.scalars().all()
+            
+        return [{"session_id": s.id, "start_time": s.start_time, "status": s.status} for s in sessions]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

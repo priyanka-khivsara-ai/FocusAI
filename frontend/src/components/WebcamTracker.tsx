@@ -89,7 +89,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
       ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/user/${encodeURIComponent(userId)}/${encodeURIComponent(sessionId)}`);
       
       ws.onmessage = (event) => {
-        // Handle message
+        // Handle message (currently unused by frontend)
       };
       ws.onopen = async () => {
         setStatus("Accessing Camera...");
