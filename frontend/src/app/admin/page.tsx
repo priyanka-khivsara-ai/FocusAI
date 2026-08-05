@@ -1,19 +1,30 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import ReactECharts from "echarts-for-react";
-import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle } from "lucide-react";
+import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle, Trash2, History } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
   const router = useRouter();
   const [role, setRole] = useState("Admin");
   const [activeTab, setActiveTab] = useState("monitoring");
+  const [industryMode, setIndustryMode] = useState("Education"); // Education or Corporate
   
   // Data States
   const [activeSessionId, setActiveSessionId] = useState("");
   const [data, setData] = useState([]);
+  const [summaryData, setSummaryData] = useState({ focused_mins: 0, distracted_mins: 0 });
   const [latestData, setLatestData] = useState([]);
   const [selectedUser, setSelectedUser] = useState("all");
+  const [timeRange, setTimeRange] = useState("30d");
+  const [historicalData, setHistoricalData] = useState<any>(null);
+  
+  // Taxonomy States
+  const [mySubjects, setMySubjects] = useState<any[]>([]);
+  const [taxonomyTree, setTaxonomyTree] = useState<any[]>([]);
+  const [selectedProject, setSelectedProject] = useState<number>(0);
+  const [directoryTree, setDirectoryTree] = useState<any[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
   
   // Chat Agent State
   const [query, setQuery] = useState("");
@@ -28,7 +39,7 @@ export default function AdminDashboard() {
   const [registeredUsers, setRegisteredUsers] = useState<any[]>([]);
 
   useEffect(() => {
-    const savedRole = localStorage.getItem("focusai_role");
+    const savedRole = sessionStorage.getItem("focusai_role");
     if (!savedRole) {
       router.push("/");
       return;
@@ -40,7 +51,15 @@ export default function AdminDashboard() {
     } else {
       setActiveTab("analytics");
     }
+
+    const savedMode = sessionStorage.getItem("focusai_industry") || "Education";
+    setIndustryMode(savedMode);
   }, [router]);
+
+  const handleIndustryChange = (mode: string) => {
+    setIndustryMode(mode);
+    sessionStorage.setItem("focusai_industry", mode);
+  };
 
   // Polling for Timeseries Charts (Admin only)
   useEffect(() => {
@@ -51,6 +70,10 @@ export default function AdminDashboard() {
         const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry?session_id=${activeSessionId}&user_id=${selectedUser}`);
         const json = await res.json();
         setData(json);
+        
+        const sumRes = await fetch(`http://${window.location.hostname}:8000/api/telemetry/summary?session_id=${activeSessionId}&user_id=${selectedUser}`);
+        const sumJson = await sumRes.json();
+        setSummaryData(sumJson);
       } catch (e) {
         console.error("Failed to fetch telemetry:", e);
       }
@@ -67,22 +90,34 @@ export default function AdminDashboard() {
       try {
         const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry/latest?session_id=${activeSessionId}`);
         const json = await res.json();
-        setLatestData(json);
+        // Sort distracted on top (Ascending focus score)
+        const sortedData = json.sort((a: any, b: any) => a.focus_score - b.focus_score);
+        setLatestData(sortedData);
       } catch (e) {
         console.error("Failed to fetch latest telemetry:", e);
       }
     };
     fetchLatest();
+    const fetchHistorical = async () => {
+      const projId = selectedProject || (document.getElementById('subject_select') as HTMLSelectElement)?.value || 0;
+      try {
+        const res = await fetch(`http://${window.location.hostname}:8000/api/analytics/historical?project_id=${projId}&time_range=${timeRange}${selectedUser !== 'all' ? `&user_id=${encodeURIComponent(selectedUser)}` : ''}`);
+        const json = await res.json();
+        setHistoricalData(json);
+      } catch(e) {}
+    };
+
+    fetchHistorical();
     const interval = setInterval(fetchLatest, 1000);
     return () => clearInterval(interval);
-  }, [activeTab, activeSessionId]);
+  }, [activeSessionId, timeRange, selectedUser, activeTab, selectedProject]);
 
   // Fetch Registered Users
   useEffect(() => {
     if (activeTab !== "users") return;
     const fetchUsers = async () => {
       try {
-        const res = await fetch(`http://${window.location.hostname}:8000/api/users/list`);
+        const res = await fetch(`http://${window.location.hostname}:8000/api/users/list?industry=${industryMode}`);
         const json = await res.json();
         setRegisteredUsers(json.users || []);
       } catch (e) {
@@ -90,11 +125,46 @@ export default function AdminDashboard() {
       }
     };
     fetchUsers();
-  }, [activeTab]);
+  }, [activeTab, industryMode, refreshKey]);
+
+  // Fetch Taxonomy Tree and Subjects
+  useEffect(() => {
+    const fetchTaxonomy = async () => {
+      try {
+        // Fetch full tree for Admin
+        if (role === "Admin" && activeTab === "taxonomy") {
+          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/tree?industry=${industryMode}`);
+          const json = await res.json();
+          setTaxonomyTree(json);
+        }
+        
+        if (role === "Admin" && activeTab === "directory") {
+          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/directory?industry=${industryMode}`);
+          const json = await res.json();
+          setDirectoryTree(json);
+        }
+        
+        // Fetch allowed subjects for meeting creation
+        const username = sessionStorage.getItem("focusai_user_id"); // This is actually username
+        if (username) {
+          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/my-subjects?username=${username}`);
+          const json = await res.json();
+          setMySubjects(json);
+        }
+      } catch (e) {
+        console.error("Failed to fetch taxonomy:", e);
+      }
+    };
+    fetchTaxonomy();
+  }, [activeTab, role, refreshKey, industryMode]);
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim() || !activeSessionId) return;
+    if (!query.trim()) return;
+    if (!activeSessionId) {
+      alert("Please enter an Active Meeting Code in the sidebar first to query the database.");
+      return;
+    }
     
     const userMessage = query;
     setChatLog(prev => [...prev, { role: "user", content: userMessage }]);
@@ -124,6 +194,7 @@ export default function AdminDashboard() {
     const formData = new FormData();
     formData.append("file", uploadFile);
     formData.append("role_name", uploadRole);
+    formData.append("industry", industryMode);
 
     try {
       const res = await fetch(`http://${window.location.hostname}:8000/api/users/bulk-upload`, {
@@ -140,17 +211,26 @@ export default function AdminDashboard() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("focusai_role");
-    localStorage.removeItem("focusai_token");
+    sessionStorage.removeItem("focusai_role");
+    sessionStorage.removeItem("focusai_token");
     router.push("/");
   };
 
   const handleCreateMeeting = async () => {
+    const selSubj = (document.getElementById('subject_select') as HTMLSelectElement)?.value;
+    if (!selSubj) {
+      alert("Please select a " + (industryMode === 'Education' ? 'Subject' : 'Project'));
+      return;
+    }
     try {
-      const res = await fetch(`http://${window.location.hostname}:8000/api/sessions/create`, { method: "POST" });
+      const res = await fetch(`http://${window.location.hostname}:8000/api/sessions/create`, { 
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: parseInt(selSubj) })
+      });
       const data = await res.json();
       setActiveSessionId(data.session_id);
-      alert(`✅ Created Meeting: ${data.session_id}\n\nShare this link with students:\nhttp://${window.location.hostname}:3000/user?code=${data.session_id}`);
+      alert(`✅ Created Meeting: ${data.session_id}\n\nShare this link with participants:\nhttp://${window.location.hostname}:3000/user?code=${data.session_id}`);
     } catch (e) {
       alert("Error creating meeting");
     }
@@ -202,18 +282,35 @@ export default function AdminDashboard() {
           <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest">{role} Portal</p>
         </div>
 
-        <div className="p-4 border-b border-slate-800">
-          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Meeting Code</label>
-          <input 
-            type="text"
-            placeholder="e.g. AI-101"
-            value={activeSessionId}
-            onChange={(e) => setActiveSessionId(e.target.value.toUpperCase())}
-            className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase mb-3"
-          />
+        <div className="p-4 border-b border-slate-800 space-y-3">
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">
+              Select {industryMode === 'Education' ? 'Subject' : 'Project'}
+            </label>
+            {mySubjects.length === 0 ? (
+              <p className="text-xs text-red-400">You are not assigned to any subjects.</p>
+            ) : (
+              <select id="subject_select" value={selectedProject} onChange={(e) => setSelectedProject(parseInt(e.target.value))} className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm">
+                {mySubjects.map(sub => (
+                  <option key={sub.id} value={sub.id}>{sub.workspace_name} - {sub.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block mt-2">Active Meeting Code</label>
+            <input 
+              type="text"
+              placeholder="e.g. AI-101"
+              value={activeSessionId}
+              onChange={(e) => setActiveSessionId(e.target.value.toUpperCase())}
+              className="w-full bg-slate-800 border border-slate-700 text-white font-bold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase text-sm"
+            />
+          </div>
           <button 
             onClick={handleCreateMeeting}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-xl transition-all shadow-md text-sm"
+            disabled={mySubjects.length === 0}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition-all shadow-md text-sm mt-2"
           >
             + Create New Meeting
           </button>
@@ -221,10 +318,20 @@ export default function AdminDashboard() {
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {role === "Admin" && (
-            <button onClick={() => setActiveTab("analytics")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <LayoutDashboard size={18} />
-              <span className="font-semibold text-sm">Analytics</span>
-            </button>
+            <>
+              <button onClick={() => setActiveTab("analytics")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <LayoutDashboard size={18} />
+                <span className="font-semibold text-sm">Live Analytics</span>
+              </button>
+              <button onClick={() => setActiveTab("historical")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'historical' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <History size={18} />
+                <span className="font-semibold text-sm">Historical Stats</span>
+              </button>
+              <button onClick={() => setActiveTab("agent")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'agent' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <Bot size={18} />
+                <span className="font-semibold text-sm">AI Agent</span>
+              </button>
+            </>
           )}
           
           <button onClick={() => setActiveTab("monitoring")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'monitoring' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
@@ -234,14 +341,17 @@ export default function AdminDashboard() {
           
           {role === "Admin" && (
             <>
-              <button onClick={() => setActiveTab("agent")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'agent' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                <Bot size={18} />
-                <span className="font-semibold text-sm">AI Analyst</span>
+              <button onClick={() => setActiveTab("directory")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'directory' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <FileText size={18} />
+                <span className="font-semibold text-sm">Directory Viewer</span>
               </button>
-              
               <button onClick={() => setActiveTab("users")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'users' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <Users size={18} />
                 <span className="font-semibold text-sm">User Provisioning</span>
+              </button>
+              <button onClick={() => setActiveTab("taxonomy")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'taxonomy' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <CheckCircle size={18} />
+                <span className="font-semibold text-sm">Taxonomy & Faculty</span>
               </button>
             </>
           )}
@@ -266,33 +376,92 @@ export default function AdminDashboard() {
                 {activeTab.replace("-", " ")}
               </h2>
               <p className="text-slate-500 font-medium mt-1">
-                {activeTab === 'analytics' && "System-wide cognitive insights and trends."}
+                {activeTab === 'analytics' && "System-wide live cognitive insights."}
+                {activeTab === 'historical' && "System-wide historical cognitive trends."}
                 {activeTab === 'monitoring' && "Real-time biometric telemetry stream."}
                 {activeTab === 'agent' && "Chat with the LangGraph RAG Assistant."}
                 {activeTab === 'users' && "Bulk upload and manage user access."}
               </p>
             </div>
             
-            {(activeTab === 'analytics' || activeTab === 'agent') && (
-               <select 
-                 value={selectedUser}
-                 onChange={(e) => setSelectedUser(e.target.value)}
-                 className="bg-white border-2 border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm outline-none transition-colors"
-               >
-                 <option value="all">System Average</option>
-                 <option value="user1">User: user1</option>
-                 <option value="user2">User: user2</option>
-               </select>
-            )}
+            
+            <div className="flex items-center gap-4">
+              {role === 'Admin' && (
+                <div className="bg-white border border-slate-200 rounded-xl flex p-1 shadow-sm">
+                  <button onClick={() => handleIndustryChange("Education")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${industryMode === 'Education' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Education Mode</button>
+                  <button onClick={() => handleIndustryChange("Corporate")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${industryMode === 'Corporate' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Corporate Mode</button>
+                </div>
+              )}
+              {(activeTab === 'historical' || activeTab === 'agent') && (
+                 <select 
+                   value={selectedUser}
+                   onChange={(e) => setSelectedUser(e.target.value)}
+                   className="bg-white border-2 border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm outline-none transition-colors"
+                 >
+                   <option value="all">System Average</option>
+                   {Array.from(new Map(taxonomyTree.flatMap(ws => ws.students || []).map(stu => [stu.username, stu])).values()).map((stu: any) => (
+                     <option key={stu.username} value={stu.username}>{industryMode === 'Education' ? 'Student' : 'Employee'}: {stu.username}</option>
+                   ))}
+                 </select>
+              )}
+            </div>
           </header>
 
           {/* Tab Contents */}
           {activeTab === "analytics" && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
+                   <div className="text-4xl font-black text-slate-800">
+                     {data.length > 0 ? Math.round(data.reduce((acc: any, curr: any) => acc + curr.focus_score, 0) / data.length) + "%" : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Average attention of all users</p>
+                </div>
+                
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Attention Loss / Deviation</h3>
+                   <div className="text-4xl font-black text-rose-600">
+                     {data.length > 10 ? 
+                       Math.round(
+                         (data.slice(-10).reduce((a: any, b: any) => a + b.focus_score, 0) / 10) - 
+                         (data.slice(0, 10).reduce((a: any, b: any) => a + b.focus_score, 0) / 10)
+                       ) + "%" : "--"
+                     }
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Start of session vs End of session</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Primary Distractor</h3>
+                   <div className="text-2xl font-black text-amber-600">
+                     {Object.keys(moodCounts).length > 0 ? Object.keys(moodCounts).reduce((a, b) => moodCounts[a] > moodCounts[b] ? a : b) : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Engagement Time</h3>
+                   <div className="text-lg font-black text-slate-700 flex gap-4">
+                     <div className="flex flex-col items-center">
+                       <span className="text-emerald-500">{summaryData.focused_mins}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Focused</span>
+                     </div>
+                     <div className="w-px bg-slate-200"></div>
+                     <div className="flex flex-col items-center">
+                       <span className="text-rose-500">{summaryData.distracted_mins}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Distracted</span>
+                     </div>
+                   </div>
+                </div>
+              </div>
+
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
-                  Focus Trend
+                  Live Focus Trend
                 </h3>
                 {data.length > 0 ? (
                   <ReactECharts option={scoreOption} style={{ height: "350px", width: "100%" }} />
@@ -302,9 +471,86 @@ export default function AdminDashboard() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                    <h3 className="font-bold text-slate-800 mb-4">Mood Distribution</h3>
+                    <h3 className="font-bold text-slate-800 mb-4">Live Mood Distribution</h3>
                     <ReactECharts option={moodOption} style={{ height: "250px", width: "100%" }} />
                  </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "historical" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {/* Time Range Selector */}
+              <div className="flex gap-3">
+                {['1d', '7d', '30d'].map(range => (
+                  <button 
+                    key={range}
+                    onClick={() => setTimeRange(range)}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${timeRange === range ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}`}
+                  >
+                    Last {range.replace('d', ' Days')}
+                  </button>
+                ))}
+              </div>
+
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
+                   <div className="text-4xl font-black text-slate-800">
+                     {historicalData ? `${historicalData.overall_avg_focus}%` : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Average attention in selected period</p>
+                </div>
+                
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Attention Loss / Deviation</h3>
+                   <div className={`text-4xl font-black ${historicalData && historicalData.focus_deviation < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                     {historicalData ? `${historicalData.focus_deviation > 0 ? '+' : ''}${historicalData.focus_deviation}%` : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Start of period vs End of period</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Primary Distractor</h3>
+                   <div className="text-2xl font-black text-amber-600">
+                     {historicalData ? historicalData.primary_emotion : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Engagement Time</h3>
+                   <div className="text-lg font-black text-slate-700 flex gap-4">
+                     <div className="flex flex-col items-center">
+                       <span className="text-emerald-500">{historicalData ? historicalData.focused_mins : 0}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Focused</span>
+                     </div>
+                     <div className="w-px bg-slate-200"></div>
+                     <div className="flex flex-col items-center">
+                       <span className="text-rose-500">{historicalData ? historicalData.distracted_mins : 0}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Distracted</span>
+                     </div>
+                   </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                  Focus Trend
+                </h3>
+                {historicalData && historicalData.timeline && historicalData.timeline.length > 0 ? (
+                  <ReactECharts option={{
+                    tooltip: { trigger: "axis", backgroundColor: "rgba(15, 23, 42, 0.9)", textStyle: {color: '#fff'} },
+                    xAxis: { type: "category", data: historicalData.timeline.map((d: any) => new Date(d.time).toLocaleDateString()), boundaryGap: false, axisLine: {lineStyle: {color: "#e2e8f0"}}, axisLabel: {color: "#94a3b8"} },
+                    yAxis: { type: "value", min: 0, max: 100, splitLine: {lineStyle: {type: "dashed", color: "#f1f5f9"}}, axisLabel: {color: "#94a3b8"} },
+                    series: [{ data: historicalData.timeline.map((d: any) => d.focus), type: "line", smooth: true, lineStyle: { width: 3, color: "#3b82f6" }, showSymbol: false, areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "rgba(59, 130, 246, 0.2)" }, { offset: 1, color: "rgba(59, 130, 246, 0)" }] } } }]
+                  }} style={{ height: "350px", width: "100%" }} />
+                ) : (
+                  <div className="h-[350px] flex items-center justify-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">Awaiting historical data...</div>
+                )}
               </div>
             </div>
           )}
@@ -326,41 +572,41 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {latestData.length === 0 ? (
+                    {latestData.length === 0 && (
                        <tr><td colSpan={8} className="p-12 text-center text-slate-400 bg-slate-50/50">No active streams.</td></tr>
-                    ) : (
-                      latestData.map((row: any, i) => (
-                        <tr key={i} className="hover:bg-slate-50 transition-colors group">
-                          <td className="p-4 pl-6 font-bold flex items-center gap-3 text-slate-700">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping"></span>
-                            {row.user_id}
-                          </td>
-                          <td className="p-4">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${row.status === 'Attentive' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                              {row.status}
-                            </span>
-                          </td>
-                          <td className="p-4 font-black text-slate-800">{row.focus_score}%</td>
-                          <td className="p-4 font-medium text-slate-600">{row.mood}</td>
-                          <td className="p-4">
-                            {row.is_tense ? <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
-                          </td>
-                          <td className="p-4 text-slate-600 font-medium">
-                            {row.eyebrows}
-                          </td>
-                          <td className="p-4">
-                            {row.yawning ? <span className="bg-rose-100 text-rose-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
-                          </td>
-                          <td className="p-4">
-                            {row.lip_movement ? <span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md text-xs font-bold">Moving</span> : <span className="text-slate-400 text-sm">Still</span>}
-                          </td>
-                        </tr>
-                      ))
                     )}
+                    {latestData.length > 0 && latestData.map((row: any, i) => (
+                      <tr key={i} className="hover:bg-slate-50 transition-colors group">
+                        <td className="p-4 pl-6 font-bold flex items-center gap-3 text-slate-700">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping"></span>
+                          {row.user_id}
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${row.status === 'Attentive' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                            {row.status}
+                          </span>
+                        </td>
+                        <td className="p-4 font-black text-slate-800">{row.focus_score}%</td>
+                        <td className="p-4 font-medium text-slate-600">{row.mood}</td>
+                        <td className="p-4">
+                          {row.is_tense ? <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
+                        </td>
+                        <td className="p-4 text-slate-600 font-medium">
+                          {row.eyebrows}
+                        </td>
+                        <td className="p-4">
+                          {row.yawning ? <span className="bg-rose-100 text-rose-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
+                        </td>
+                        <td className="p-4">
+                          {row.lip_movement ? <span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md text-xs font-bold">Moving</span> : <span className="text-slate-400 text-sm">Still</span>}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             </div>
+            
           )}
 
           {activeTab === "agent" && (
@@ -420,12 +666,12 @@ export default function AdminDashboard() {
                     <div className="grid grid-cols-2 gap-4">
                       <label className={`border-2 rounded-2xl p-4 cursor-pointer transition-all ${uploadRole === 'User' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
                         <input type="radio" name="role" value="User" checked={uploadRole === 'User'} onChange={() => setUploadRole("User")} className="hidden" />
-                        <div className="font-bold text-slate-800">User Role</div>
+                        <div className="font-bold text-slate-800">{industryMode === 'Education' ? 'User' : 'Employee'} Role</div>
                         <div className="text-xs text-slate-500 mt-1">Standard tracking participant</div>
                       </label>
                       <label className={`border-2 rounded-2xl p-4 cursor-pointer transition-all ${uploadRole === 'Host' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
                         <input type="radio" name="role" value="Host" checked={uploadRole === 'Host'} onChange={() => setUploadRole("Host")} className="hidden" />
-                        <div className="font-bold text-slate-800">Host Role</div>
+                        <div className="font-bold text-slate-800">{industryMode === 'Education' ? 'Host' : 'Manager'} Role</div>
                         <div className="text-xs text-slate-500 mt-1">Access to live monitoring</div>
                       </label>
                     </div>
@@ -506,11 +752,12 @@ export default function AdminDashboard() {
                         <th className="p-4 font-bold border-b border-slate-100">Email</th>
                         <th className="p-4 font-bold border-b border-slate-100">Password</th>
                         <th className="p-4 font-bold border-b border-slate-100">Role</th>
+                        <th className="p-4 font-bold border-b border-slate-100 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {registeredUsers.length === 0 ? (
-                        <tr><td colSpan={4} className="p-12 text-center text-slate-400">No users found.</td></tr>
+                        <tr><td colSpan={5} className="p-12 text-center text-slate-400">No users found.</td></tr>
                       ) : (
                         registeredUsers.map((u: any, i: number) => (
                           <tr key={i} className="hover:bg-slate-50 transition-colors">
@@ -519,8 +766,28 @@ export default function AdminDashboard() {
                             <td className="p-4 font-mono text-slate-500 bg-slate-100 rounded px-2 py-1 my-2 inline-block text-xs">{u.password || "Hidden"}</td>
                             <td className="p-4">
                               <span className={`px-2 py-1 rounded font-bold text-xs ${u.role === 'Admin' ? 'bg-amber-100 text-amber-700' : u.role === 'Host' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                                {u.role}
+                                {industryMode === 'Corporate' ? (u.role === 'Host' ? 'Manager' : u.role === 'User' ? 'Employee' : u.role) : u.role}
                               </span>
+                            </td>
+                            <td className="p-4 text-right">
+                              {u.username !== 'admin' && (
+                                <button onClick={async () => {
+                                  if(!confirm('Delete this user?')) return;
+                                  try {
+                                    const res = await fetch(`http://${window.location.hostname}:8000/api/users/${u.id}`, {method: 'DELETE'});
+                                    const j = await res.json();
+                                    alert(j.message || "Deleted");
+                                    // re-fetch users
+                                    const r2 = await fetch(`http://${window.location.hostname}:8000/api/users/list`);
+                                    const j2 = await r2.json();
+                                    setRegisteredUsers(j2.users || []);
+                                  } catch (e) {
+                                    alert("Error deleting user");
+                                  }
+                                }} className="text-rose-400 hover:text-rose-600 transition-colors p-2 rounded-md hover:bg-rose-50">
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))
@@ -528,6 +795,295 @@ export default function AdminDashboard() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+            </div>
+          )}
+          )}
+
+          {activeTab === "taxonomy" && role === "Admin" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Create Course */}
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Create New {industryMode === 'Education' ? 'Course' : 'Workspace'}</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Name</label>
+                      <input type="text" id="new_course_name" placeholder="e.g. Computer Science" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Code</label>
+                      <input type="text" id="new_course_code" placeholder="e.g. CS101" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl uppercase" />
+                    </div>
+                    <button onClick={async () => {
+                      const n = (document.getElementById('new_course_name') as HTMLInputElement)?.value;
+                      const c = (document.getElementById('new_course_code') as HTMLInputElement)?.value;
+                      if(!n || !c) return alert("Fill all fields");
+                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/course`, {
+                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name:n, code:c, industry:industryMode})
+                      });
+                      const j = await res.json();
+                      alert(j.message);
+                      // trigger re-fetch
+                      setRefreshKey(prev => prev + 1);
+                    }} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl">
+                      Create
+                    </button>
+                  </div>
+                </div>
+
+                {/* Create Subject */}
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Create New {industryMode === 'Education' ? 'Subject' : 'Project'}</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Course' : 'Workspace'}</label>
+                      <select id="new_sub_course" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
+                        {taxonomyTree.map(ws => <option key={ws.id} value={ws.id}>{ws.name} ({ws.code})</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Name</label>
+                      <input type="text" id="new_sub_name" placeholder="e.g. Data Structures" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl" />
+                    </div>
+                    <button onClick={async () => {
+                      const cid = (document.getElementById('new_sub_course') as HTMLSelectElement)?.value;
+                      const n = (document.getElementById('new_sub_name') as HTMLInputElement)?.value;
+                      if(!cid || !n) return alert("Fill all fields");
+                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/subject`, {
+                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({workspace_id:parseInt(cid), name:n})
+                      });
+                      const j = await res.json();
+                      alert(j.message);
+                      setRefreshKey(prev => prev + 1);
+                    }} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl">
+                      Create
+                    </button>
+                  </div>
+                </div>
+
+                {/* Assign Faculty */}
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 md:col-span-2">
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Assign {industryMode === 'Education' ? 'Faculty / Host' : 'Manager'} to {industryMode === 'Education' ? 'Subject' : 'Project'}</h3>
+                  <div className="flex flex-col md:flex-row gap-4 items-end">
+                    <div className="flex-1 w-full">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Faculty' : 'Manager'}</label>
+                      <select id="assign_user" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
+                        {registeredUsers.filter(u => u.role === "Host" || u.role === "Admin").map(u => (
+                          <option key={u.username} value={u.username}>{u.username}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex-1 w-full">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Subject' : 'Project'}</label>
+                      <select id="assign_sub" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
+                        {taxonomyTree.map(ws => (
+                          <optgroup key={ws.id} label={ws.name}>
+                            {ws.subjects.map((sub: any) => (
+                              <option key={sub.id} value={`${ws.id},${sub.id}`}>{sub.name}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                    <button onClick={async () => {
+                      const u = (document.getElementById('assign_user') as HTMLSelectElement)?.value;
+                      const val = (document.getElementById('assign_sub') as HTMLSelectElement)?.value;
+                      if(!u || !val) return alert("Select user and subject");
+                      const [wid, pid] = val.split(',');
+                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/assign`, {
+                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({username: u, workspace_id: parseInt(wid), project_id: parseInt(pid)})
+                      });
+                      const j = await res.json();
+                      alert(j.message);
+                      setRefreshKey(prev => prev + 1);
+                    }} className="w-full md:w-auto px-8 bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl">
+                      Assign
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+              
+              {/* Hierarchy Tree View */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 mt-6">
+                <h3 className="text-xl font-black text-slate-800 mb-6">Current Hierarchy</h3>
+                <div className="space-y-4">
+                  {taxonomyTree.map(ws => (
+                    <div key={ws.id} className="border border-slate-200 rounded-2xl p-4 bg-slate-50">
+                      <div className="flex justify-between items-center">
+                        <h4 className="font-black text-lg text-slate-800">{ws.name} <span className="text-slate-400 font-medium text-sm">({ws.code})</span></h4>
+                        <button onClick={async () => {
+                          if(!confirm('Delete this course?')) return;
+                          await fetch(`http://${window.location.hostname}:8000/api/taxonomy/course/${ws.id}`, {method: 'DELETE'});
+                          setRefreshKey(prev => prev + 1);
+                        }} className="text-rose-400 hover:text-rose-600 transition-colors p-1 rounded-md hover:bg-rose-50">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      <div className="mt-3 ml-4 space-y-2 border-l-2 border-blue-200 pl-4">
+                        {ws.subjects.map((sub: any) => (
+                          <div key={sub.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex flex-col gap-2">
+                            <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                              <span className="font-bold text-slate-700">{sub.name}</span>
+                              <button onClick={async () => {
+                                if(!confirm('Delete this subject?')) return;
+                                await fetch(`http://${window.location.hostname}:8000/api/taxonomy/subject/${sub.id}`, {method: 'DELETE'});
+                                setRefreshKey(prev => prev + 1);
+                              }} className="text-rose-400 hover:text-rose-600">
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{industryMode === 'Education' ? 'Hosts:' : 'Managers:'}</span>
+                              {sub.hosts.length > 0 ? sub.hosts.map((h: any) => (
+                                <span key={h.id} className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded-md flex items-center gap-2 border border-slate-200">
+                                  {h.username}
+                                  <button onClick={async () => {
+                                    if(!confirm('Remove this host?')) return;
+                                    await fetch(`http://${window.location.hostname}:8000/api/taxonomy/assign/${h.id}/${sub.id}`, {method: 'DELETE'});
+                                    setRefreshKey(prev => prev + 1);
+                                  }} className="text-rose-400 hover:text-rose-600">
+                                    <Trash2 size={12} />
+                                  </button>
+                                </span>
+                              )) : <span className="text-xs text-slate-400 italic">None</span>}
+                            </div>
+                          </div>
+                        ))}
+                        {ws.subjects.length === 0 && <p className="text-sm text-slate-400">No subjects added yet.</p>}
+                      </div>
+                    </div>
+                  ))}
+                  {taxonomyTree.length === 0 && <p className="text-slate-500 text-center py-8">No hierarchy created yet.</p>}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {activeTab === "directory" && role === "Admin" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {/* Hierarchical Bulk Upload */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                <h3 className="text-xl font-black text-slate-800 mb-2">Automated Hierarchy Import</h3>
+                <p className="text-slate-500 text-sm mb-6">
+                {industryMode === 'Education' ? (
+                  <>Upload an Excel (.xlsx) or CSV file containing <strong>Course_Name, Subject_Name, Faculty_Name, Faculty_Email, Student_Name, Student_Email</strong> to automatically build your entire directory.</>
+                ) : (
+                  <>Upload an Excel (.xlsx) or CSV file containing <strong>Department_Name, Project_Name, Manager_Name, Manager_Email, Employee_Name, Employee_Email</strong> to automatically build your entire directory.</>
+                )}
+                </p>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!uploadFile) return alert("Please select a file");
+                  setUploading(true);
+                  const formData = new FormData();
+                  formData.append("file", uploadFile);
+                  formData.append("industry", industryMode);
+                  try {
+                    const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/bulk-import`, {
+                      method: "POST", body: formData
+                    });
+                    const json = await res.json();
+                    if (!res.ok) throw new Error(json.detail);
+                    alert(`✅ ${json.message}`);
+                    setActiveTab("directory"); // Re-fetch
+                  } catch (err: any) {
+                    alert("Error: " + err.message);
+                  }
+                  setUploading(false);
+                }} className="space-y-4">
+                  <div className="flex items-center justify-center w-full">
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-200 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Upload className="w-8 h-8 mb-2 text-slate-400" />
+                        <p className="mb-1 text-sm text-slate-600"><span className="font-bold">Click to upload</span> or drag and drop</p>
+                        <p className="text-xs text-slate-400">.xlsx or .csv only</p>
+                      </div>
+                      <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+                    </label>
+                  </div>
+                  {uploadFile && <p className="text-sm font-semibold text-emerald-600">Selected: {uploadFile.name}</p>}
+                  
+                  <button type="submit" disabled={uploading} className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold py-3 rounded-xl shadow-md transition-all">
+                    {uploading ? 'Processing...' : 'Process Hierarchy'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Nested Directory Viewer */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                <h3 className="text-xl font-black text-slate-800 mb-6">All {industryMode === 'Education' ? 'Courses' : 'Workspaces'} & Users</h3>
+                
+                <div className="space-y-4">
+                  {directoryTree.map(ws => (
+                    <details key={ws.id} className="group border border-slate-200 rounded-2xl bg-slate-50 overflow-hidden">
+                      <summary className="font-black text-lg text-slate-800 p-4 cursor-pointer hover:bg-slate-100 transition-colors list-none flex justify-between items-center">
+                        <span>{ws.name} <span className="text-slate-400 font-medium text-sm">({ws.code})</span></span>
+                        <span className="text-sm text-blue-600 group-open:hidden">+ Expand</span>
+                        <span className="text-sm text-blue-600 hidden group-open:block">- Collapse</span>
+                      </summary>
+                      
+                      <div className="p-4 pt-0 space-y-4 border-t border-slate-200 bg-white">
+                        
+                        {/* Workspace Students */}
+                        {ws.students.length > 0 && (
+                          <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                            <h5 className="font-bold text-sm text-blue-800 mb-2 uppercase tracking-widest">Enrolled {industryMode === 'Education' ? 'Students' : 'Users'}</h5>
+                            <div className="flex flex-wrap gap-2">
+                              {ws.students.map((stu: any) => (
+                                <span key={stu.id} className="px-3 py-1 bg-white border border-blue-200 text-blue-700 text-sm font-semibold rounded-full shadow-sm">
+                                  {stu.username} <span className="text-blue-400 font-normal ml-1 text-xs">({stu.email})</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Subjects */}
+                        {ws.subjects.map((sub: any) => (
+                          <details key={sub.id} className="group/sub border border-slate-100 rounded-xl bg-slate-50 overflow-hidden ml-4 shadow-sm">
+                            <summary className="font-bold text-slate-700 p-3 cursor-pointer hover:bg-slate-100 transition-colors list-none flex justify-between items-center">
+                              {sub.name}
+                              <span className="text-xs text-slate-400">View Users</span>
+                            </summary>
+                            
+                            <div className="p-4 pt-0 space-y-4 border-t border-slate-100 bg-white grid grid-cols-1 md:grid-cols-2 gap-4">
+                              
+                              {/* Faculty */}
+                              <div>
+                                <h6 className="font-bold text-xs text-amber-700 mb-2 uppercase tracking-widest bg-amber-50 inline-block px-2 py-1 rounded">Assigned Faculty</h6>
+                                <div className="space-y-1">
+                                  {sub.faculty.length === 0 ? <p className="text-xs text-slate-400">None assigned</p> : sub.faculty.map((f: any) => (
+                                    <div key={f.id} className="text-sm font-semibold text-slate-700">{f.username} <span className="text-slate-400 font-normal">({f.email})</span></div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Students */}
+                              <div>
+                                <h6 className="font-bold text-xs text-emerald-700 mb-2 uppercase tracking-widest bg-emerald-50 inline-block px-2 py-1 rounded">Enrolled {industryMode === 'Education' ? 'Students' : 'Users'}</h6>
+                                <div className="space-y-1">
+                                  {sub.students.length === 0 ? <p className="text-xs text-slate-400">None enrolled</p> : sub.students.map((stu: any) => (
+                                    <div key={stu.id} className="text-sm font-semibold text-slate-700">{stu.username} <span className="text-slate-400 font-normal">({stu.email})</span></div>
+                                  ))}
+                                </div>
+                              </div>
+
+                            </div>
+                          </details>
+                        ))}
+                        
+                      </div>
+                    </details>
+                  ))}
+                  {directoryTree.length === 0 && <p className="text-slate-500 text-center py-8">No hierarchical data found.</p>}
+                </div>
+
               </div>
 
             </div>

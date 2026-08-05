@@ -81,6 +81,7 @@ def extract_from_pdf(contents):
 @router.post("/bulk-upload")
 async def bulk_upload_users(
     role_name: str = Form(...),
+    industry: str = Form("Education"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db)
 ):
@@ -131,7 +132,8 @@ async def bulk_upload_users(
             username=u["username"],
             email=u["email"],
             password=plain_password,
-            role_id=role.id
+            role_id=role.id,
+            industry=industry
         )
         db.add(new_user)
         created_users.append({
@@ -150,9 +152,9 @@ async def bulk_upload_users(
     }
 
 @router.get("/list")
-async def list_users(db: AsyncSession = Depends(get_db)):
+async def list_users(industry: str = "Education", db: AsyncSession = Depends(get_db)):
     # Fetch users and their roles
-    query = select(User, Role.name).join(Role, User.role_id == Role.id)
+    query = select(User, Role.name).join(Role, User.role_id == Role.id).where(User.industry == industry)
     result = await db.execute(query)
     users = []
     for user, role_name in result.all():
@@ -164,3 +166,16 @@ async def list_users(db: AsyncSession = Depends(get_db)):
             "role": role_name
         })
     return {"users": users}
+
+@router.delete("/{user_id}")
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    from sqlalchemy import text
+    await db.execute(text("DELETE FROM enrollments WHERE user_id = :uid"), {"uid": user_id})
+    await db.delete(user)
+    await db.commit()
+    return {"message": "User deleted successfully"}

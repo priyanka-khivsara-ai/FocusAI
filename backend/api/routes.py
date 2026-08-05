@@ -81,6 +81,42 @@ async def get_telemetry(session_id: str, user_id: Optional[str] = None):
         print(f"Error fetching telemetry: {e}")
         return []
 
+@router.get("/telemetry/summary")
+async def get_telemetry_summary(session_id: str, user_id: Optional[str] = None):
+    try:
+        async with SessionLocal() as db:
+            if user_id and user_id != "all":
+                query = text("""
+                    SELECT 
+                        COUNT(CASE WHEN attention_score >= 70 THEN 1 END) as focused_secs,
+                        COUNT(CASE WHEN attention_score < 70 THEN 1 END) as distracted_secs
+                    FROM attention_timeline 
+                    WHERE user_id = :uid AND session_id = :session_id
+                """)
+                result = await db.execute(query, {"uid": user_id, "session_id": session_id})
+            else:
+                query = text("""
+                    SELECT 
+                        COUNT(CASE WHEN a.attention_score >= 70 THEN 1 END) as focused_secs,
+                        COUNT(CASE WHEN a.attention_score < 70 THEN 1 END) as distracted_secs
+                    FROM attention_timeline a
+                    JOIN users u ON a.user_id = u.username
+                    JOIN roles r ON u.role_id = r.id
+                    WHERE r.name = 'User' AND a.session_id = :session_id
+                """)
+                result = await db.execute(query, {"session_id": session_id})
+            
+            row = result.fetchone()
+            if row:
+                return {
+                    "focused_mins": round((row.focused_secs or 0) / 60),
+                    "distracted_mins": round((row.distracted_secs or 0) / 60)
+                }
+            return {"focused_mins": 0, "distracted_mins": 0}
+    except Exception as e:
+        print(f"Error fetching telemetry summary: {e}")
+        return {"focused_mins": 0, "distracted_mins": 0}
+
 @router.get("/telemetry/latest")
 async def get_latest_telemetry(session_id: str):
     try:
@@ -123,3 +159,35 @@ async def chat_endpoint(req: ChatRequest):
         return {"response": final_message}
     except Exception as e:
         return {"response": f"AI Error: Make sure your GROQ_API_KEY is valid! Details: {str(e)}"}
+
+class CalibrationRequest(BaseModel):
+    user_id: str
+    ground_truth_score: int
+    current_system_score: int
+
+@router.post("/telemetry/calibrate")
+async def calibrate_score(req: CalibrationRequest):
+    from models.relational import Calibration, User
+    try:
+        async with SessionLocal() as db:
+            # Get user id from username
+            query = text("SELECT id FROM users WHERE username = :username")
+            res = await db.execute(query, {"username": req.user_id})
+            u_row = res.fetchone()
+            if not u_row: return {"status": "error", "message": "User not found"}
+            
+            offset = req.ground_truth_score - req.current_system_score
+            
+            # Upsert calibration
+            cal_query = text("SELECT id FROM calibrations WHERE user_id = :uid")
+            cal_res = await db.execute(cal_query, {"uid": u_row.id})
+            cal_row = cal_res.fetchone()
+            
+            if cal_row:
+                await db.execute(text("UPDATE calibrations SET base_offset = :offset WHERE id = :cid"), {"offset": offset, "cid": cal_row.id})
+            else:
+                db.add(Calibration(user_id=u_row.id, base_offset=offset))
+            await db.commit()
+            return {"status": "success", "message": f"AI weights calibrated. Score offset of {offset}% applied."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

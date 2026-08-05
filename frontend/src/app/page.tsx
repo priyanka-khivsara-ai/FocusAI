@@ -27,9 +27,9 @@ export default function LoginScreen() {
       const data = await response.json();
       
       // Store JWT token and user info
-      localStorage.setItem("focusai_token", data.access_token);
-      localStorage.setItem("focusai_user_id", data.user_id);
-      localStorage.setItem("focusai_role", data.role);
+      sessionStorage.setItem("focusai_token", data.access_token);
+      sessionStorage.setItem("focusai_user_id", data.user_id);
+      sessionStorage.setItem("focusai_role", data.role);
       
       if (data.role === "User") {
         router.push("/user");

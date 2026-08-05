@@ -15,8 +15,13 @@ def generate_meeting_code():
     suffix = "".join(random.choices(string.digits, k=3))
     return f"{prefix}-{suffix}"
 
+from pydantic import BaseModel
+
+class CreateSessionReq(BaseModel):
+    project_id: int = None
+
 @router.post("/create")
-async def create_session(db: AsyncSession = Depends(get_db)):
+async def create_session(req: CreateSessionReq, db: AsyncSession = Depends(get_db)):
     try:
         # Generate a unique code
         code = generate_meeting_code()
@@ -29,6 +34,7 @@ async def create_session(db: AsyncSession = Depends(get_db)):
         
         new_session = Session(
             id=code,
+            project_id=req.project_id,
             status="active"
         )
         db.add(new_session)

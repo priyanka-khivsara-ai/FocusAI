@@ -1,5 +1,6 @@
 from fastapi import APIRouter, WebSocket
 import numpy as np
+from sqlalchemy import text
 
 from database.connection import SessionLocal
 from models.timescale import AttentionTimeline, EmotionTimeline, FacialMetrics
@@ -111,6 +112,22 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                 else:
                     status = "Attentive"
                     
+                # CALIBRATION: Fetch ground truth offset
+                offset = 0
+                try:
+                    async with SessionLocal() as db:
+                        cal_res = await db.execute(text("""
+                            SELECT c.base_offset FROM calibrations c 
+                            JOIN users u ON c.user_id = u.id 
+                            WHERE u.username = :uid
+                        """), {"uid": user_id})
+                        cal_row = cal_res.fetchone()
+                        if cal_row: offset = cal_row.base_offset
+                except Exception as e:
+                    pass
+                
+                final_score = max(0, min(100, final_score + offset))
+                
                 attention_score = f"{status} | Overall Focus: {final_score}%"
                 score = final_score
 

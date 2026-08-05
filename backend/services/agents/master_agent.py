@@ -19,8 +19,10 @@ def get_agent(session_id: str):
     async def query_recent_telemetry(user_id: str = "all", limit: int = 50) -> str:
         """
         Queries the TimescaleDB database for the most recent cognitive telemetry records.
-        Returns a chronological list of focus scores and mood over time.
+        Returns a chronological list of focus scores and mood over time. 
+        MAXIMUM LIMIT is 100. You cannot fetch more than 100 records at a time.
         """
+        limit = min(limit, 100) # Cap limit to prevent Token Rate Limit errors
         try:
             async with SessionLocal() as db:
                 if user_id == "all":
@@ -62,6 +64,12 @@ def get_agent(session_id: str):
     llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
     tools = [query_recent_telemetry]
     
+    system_prompt = (
+        "You are an AI data analyst for FocusAI. You have access to ONLY ONE tool: `query_recent_telemetry`. "
+        "DO NOT use or attempt to call any other tools such as `brave_search`. "
+        "Answer the user's questions based ONLY on the data returned by your tool."
+    )
+    
     # create_react_agent builds a StateGraph under the hood
-    agent = create_react_agent(llm, tools)
+    agent = create_react_agent(llm, tools, prompt=system_prompt)
     return agent
