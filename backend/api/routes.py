@@ -22,7 +22,9 @@ def format_records(records):
         elif lower_val > 0.5:
             eyebrows = "Lowered"
 
-        if r.mood == "Absent" or r.focus_score == 0:
+        if r.mood == "Spoofing Detected":
+            status = "Spoofing Detected"
+        elif r.mood == "Absent" or r.focus_score == 0:
             status = "User Not Found"
         else:
             status = "Attentive" if r.focus_score > 60 else "Distracted"
