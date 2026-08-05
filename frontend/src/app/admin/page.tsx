@@ -1,96 +1,189 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import ReactECharts from "echarts-for-react";
+import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle, Trash2, History } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
-  const [role, setRole] = useState("Super Admin");
+  const router = useRouter();
+  const [role, setRole] = useState("Admin");
+  const [activeTab, setActiveTab] = useState("monitoring");
+  const [industryMode, setIndustryMode] = useState("Education"); // Education or Corporate
+  
+  // Data States
+  const [activeSessionId, setActiveSessionId] = useState("");
   const [data, setData] = useState([]);
+  const [summaryData, setSummaryData] = useState({ focused_mins: 0, distracted_mins: 0 });
   const [latestData, setLatestData] = useState([]);
-  
-  // Multi-Tenant State
   const [selectedUser, setSelectedUser] = useState("all");
+  const [timeRange, setTimeRange] = useState("30d");
+  const [historicalData, setHistoricalData] = useState<any>(null);
   
-  // Provisioning State
-  const [uploading, setUploading] = useState(false);
-  const [generatedAccounts, setGeneratedAccounts] = useState<any[]>([]);
-  const [uploadMsg, setUploadMsg] = useState("");
+  // Taxonomy States
+  const [mySubjects, setMySubjects] = useState<any[]>([]);
+  const [taxonomyTree, setTaxonomyTree] = useState<any[]>([]);
+  const [selectedProject, setSelectedProject] = useState<number>(0);
+  const [directoryTree, setDirectoryTree] = useState<any[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [pastSessions, setPastSessions] = useState<any[]>([]);
   
   // Chat Agent State
   const [query, setQuery] = useState("");
   const [chatLog, setChatLog] = useState<{role: string, content: string}[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const savedRole = localStorage.getItem("focusai_role") || "Super Admin";
-    setRole(savedRole);
-  }, []);
+  // Bulk Upload State
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadRole, setUploadRole] = useState("User");
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<any>(null);
+  const [registeredUsers, setRegisteredUsers] = useState<any[]>([]);
+  
+  // Timeline Modal State
+  const [selectedStudentHistory, setSelectedStudentHistory] = useState<any[] | null>(null);
+  const [selectedStudentName, setSelectedStudentName] = useState<string>("");
+  const [selectedStudentOverallScore, setSelectedStudentOverallScore] = useState<number>(0);
 
-  // --- SUPER ADMIN: Polling for Timeseries Charts ---
   useEffect(() => {
-    if (role !== "Super Admin") return;
+    const savedRole = sessionStorage.getItem("focusai_role");
+    if (!savedRole) {
+      router.push("/");
+      return;
+    }
+    
+    setRole(savedRole);
+    if (savedRole === "Host") {
+      setActiveTab("monitoring");
+    } else {
+      setActiveTab("analytics");
+    }
+
+    const savedMode = sessionStorage.getItem("focusai_industry") || "Education";
+    setIndustryMode(savedMode);
+  }, [router]);
+
+  const handleIndustryChange = (mode: string) => {
+    setIndustryMode(mode);
+    sessionStorage.setItem("focusai_industry", mode);
+  };
+
+  // Polling for Timeseries Charts (Admin only)
+  useEffect(() => {
+    if (role !== "Admin" || activeTab !== "analytics") return;
     const fetchData = async () => {
+      if (!activeSessionId) return;
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/telemetry?user_id=${selectedUser}`);
+        const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry?session_id=${activeSessionId}&user_id=${selectedUser}`);
         const json = await res.json();
         setData(json);
+        
+        const sumRes = await fetch(`http://${window.location.hostname}:8000/api/telemetry/summary?session_id=${activeSessionId}&user_id=${selectedUser}`);
+        const sumJson = await sumRes.json();
+        setSummaryData(sumJson);
       } catch (e) {
         console.error("Failed to fetch telemetry:", e);
       }
     };
-    
     fetchData();
     const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
-  }, [role, selectedUser]);
+  }, [role, activeTab, selectedUser, activeSessionId]);
 
-  // --- ADMIN: Polling for Real-Time Monitoring Table ---
+  // Polling for Live Monitoring Table
   useEffect(() => {
-    if (role !== "Admin") return;
+    if (activeTab !== "monitoring" || !activeSessionId) return;
     const fetchLatest = async () => {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/telemetry/latest`);
+        const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry/latest?session_id=${activeSessionId}`);
         const json = await res.json();
-        setLatestData(json);
+        // Sort distracted on top (Ascending focus score)
+        const sortedData = json.sort((a: any, b: any) => a.focus_score - b.focus_score);
+        setLatestData(sortedData);
       } catch (e) {
         console.error("Failed to fetch latest telemetry:", e);
       }
     };
-    
     fetchLatest();
+    const fetchHistorical = async () => {
+      const projId = selectedProject || (document.getElementById('subject_select') as HTMLSelectElement)?.value || 0;
+      try {
+        const res = await fetch(`http://${window.location.hostname}:8000/api/analytics/historical?project_id=${projId}&time_range=${timeRange}${selectedUser !== 'all' ? `&user_id=${encodeURIComponent(selectedUser)}` : ''}`);
+        const json = await res.json();
+        setHistoricalData(json);
+      } catch(e) {}
+    };
+
+    fetchHistorical();
     const interval = setInterval(fetchLatest, 1000);
     return () => clearInterval(interval);
-  }, [role]);
+  }, [activeSessionId, timeRange, selectedUser, activeTab, selectedProject]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    setUploading(true);
-    setUploadMsg("");
-    
-    const formData = new FormData();
-    formData.append("file", e.target.files[0]);
-
-    try {
-      const res = await fetch("http://127.0.0.1:8000/api/upload-users", {
-        method: "POST",
-        body: formData
-      });
-      const json = await res.json();
-      if (json.success) {
-        setGeneratedAccounts(json.accounts);
-        setUploadMsg(`Successfully generated ${json.accounts.length} accounts!`);
-      } else {
-        setUploadMsg(json.message);
+  // Fetch Registered Users
+  useEffect(() => {
+    if (activeTab !== "users") return;
+    const fetchUsers = async () => {
+      try {
+        const res = await fetch(`http://${window.location.hostname}:8000/api/users/list?industry=${industryMode}`);
+        const json = await res.json();
+        setRegisteredUsers(json.users || []);
+      } catch (e) {
+        console.error("Failed to fetch users:", e);
       }
-    } catch (err) {
-      setUploadMsg("File upload failed.");
-    } finally {
-      setUploading(false);
-    }
-  };
+    };
+    fetchUsers();
+  }, [activeTab, industryMode, refreshKey]);
+
+  // Fetch Taxonomy Tree and Subjects
+  useEffect(() => {
+    const fetchTaxonomy = async () => {
+      try {
+        // Fetch full tree for Admin
+        if (role === "Admin" && activeTab === "taxonomy") {
+          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/tree?industry=${industryMode}`);
+          const json = await res.json();
+          setTaxonomyTree(json);
+        }
+        
+        if (role === "Admin" && activeTab === "directory") {
+          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/directory?industry=${industryMode}`);
+          const json = await res.json();
+          setDirectoryTree(json);
+        }
+        
+        // Fetch allowed subjects for meeting creation
+        const username = sessionStorage.getItem("focusai_user_id"); // This is actually username
+        if (username) {
+          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/my-subjects?username=${username}`);
+          const json = await res.json();
+          setMySubjects(json);
+        }
+      } catch (e) {
+        console.error("Failed to fetch taxonomy:", e);
+      }
+    };
+    fetchTaxonomy();
+  }, [activeTab, role, refreshKey, industryMode]);
+
+  // Fetch Past Sessions
+  useEffect(() => {
+    const fetchHistory = async () => {
+      const username = sessionStorage.getItem("focusai_user_id");
+      try {
+        const res = await fetch(`http://${window.location.hostname}:8000/api/sessions/history?role=${role}&username=${username}`);
+        const json = await res.json();
+        setPastSessions(json);
+      } catch (e) {}
+    };
+    fetchHistory();
+  }, [role, refreshKey]);
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
+    if (!activeSessionId) {
+      alert("Please enter an Active Meeting Code in the sidebar first to query the database.");
+      return;
+    }
     
     const userMessage = query;
     setChatLog(prev => [...prev, { role: "user", content: userMessage }]);
@@ -98,10 +191,10 @@ export default function AdminDashboard() {
     setLoading(true);
     
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/chat", {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, user_id: selectedUser })
+        body: JSON.stringify({ message: userMessage, user_id: selectedUser, session_id: activeSessionId })
       });
       const json = await res.json();
       setChatLog(prev => [...prev, { role: "agent", content: json.response }]);
@@ -112,42 +205,97 @@ export default function AdminDashboard() {
     setLoading(false);
   };
 
+  const handleBulkUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadFile) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file", uploadFile);
+    formData.append("role_name", uploadRole);
+    formData.append("industry", industryMode);
+
+    try {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/users/bulk-upload`, {
+        method: "POST",
+        body: formData
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.detail || "Upload failed");
+      setUploadResult(json);
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    }
+    setUploading(false);
+  };
+
+  const handleStudentClick = async (username: string) => {
+    setSelectedStudentName(username);
+    try {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry/user_timeline?session_id=${activeSessionId}&user_id=${username}`);
+      if (!res.ok) {
+         setSelectedStudentHistory([]);
+         alert(`Error ${res.status}: Did you restart your python backend?`);
+         return;
+      }
+      const json = await res.json();
+      if (json.timeline) {
+        setSelectedStudentHistory(json.timeline);
+        setSelectedStudentOverallScore(json.overall_score);
+      } else if (Array.isArray(json)) {
+        setSelectedStudentHistory(json);
+        setSelectedStudentOverallScore(0);
+      } else {
+        setSelectedStudentHistory([]);
+        setSelectedStudentOverallScore(0);
+      }
+    } catch (e) {
+      console.error(e);
+      setSelectedStudentHistory([]);
+    }
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem("focusai_role");
+    sessionStorage.removeItem("focusai_token");
+    router.push("/");
+  };
+
+  const handleCreateMeeting = async () => {
+    const selSubj = (document.getElementById('subject_select') as HTMLSelectElement)?.value;
+    if (!selSubj) {
+      alert("Please select a " + (industryMode === 'Education' ? 'Subject' : 'Project'));
+      return;
+    }
+    try {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/sessions/create`, { 
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: parseInt(selSubj) })
+      });
+      const data = await res.json();
+      setActiveSessionId(data.session_id);
+      alert(`✅ Created Meeting: ${data.session_id}\n\nShare this link with participants:\nhttp://${window.location.hostname}:3000/user?code=${data.session_id}`);
+    } catch (e) {
+      alert("Error creating meeting");
+    }
+  };
+
+  // --- ECharts Options ---
   const times = data.map((d: any) => new Date(d.timestamp).toLocaleTimeString());
   const scores = data.map((d: any) => d.focus_score);
   
   const scoreOption = {
-    tooltip: { trigger: "axis", backgroundColor: "rgba(255, 255, 255, 0.95)", borderColor: "#e2e8f0" },
-    grid: { left: "5%", right: "5%", bottom: "10%", top: "10%" },
-    xAxis: { type: "category", data: times, boundaryGap: false, axisLine: { lineStyle: { color: "#cbd5e1" } }, axisLabel: { color: "#64748b" } },
+    tooltip: { trigger: "axis", backgroundColor: "rgba(15, 23, 42, 0.9)", textStyle: {color: '#fff'}, borderColor: "transparent" },
+    grid: { left: "3%", right: "3%", bottom: "5%", top: "10%", containLabel: true },
+    xAxis: { type: "category", data: times, boundaryGap: false, axisLine: { lineStyle: { color: "#e2e8f0" } }, axisLabel: { color: "#64748b" } },
     yAxis: { type: "value", max: 100, min: 0, splitLine: { lineStyle: { color: "#f1f5f9", type: "dashed" } }, axisLabel: { color: "#64748b" } },
     series: [{
-      name: "Focus Score",
-      data: scores,
-      type: "line",
-      smooth: true,
-      showSymbol: false,
-      lineStyle: { color: "#059669", width: 4 },
+      name: "Focus Score", data: scores, type: "line", smooth: true, showSymbol: false,
+      lineStyle: { color: "#3b82f6", width: 3 },
       areaStyle: {
-        color: {
-          type: "linear", x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [{ offset: 0, color: "rgba(5, 150, 105, 0.4)" }, { offset: 1, color: "rgba(5, 150, 105, 0.0)" }]
-        }
+        color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "rgba(59, 130, 246, 0.2)" }, { offset: 1, color: "rgba(59, 130, 246, 0)" }] }
       }
-    }]
-  };
-  
-  const tensions = data.map((d: any) => d.is_tense ? 1 : 0);
-  const tensionOption = {
-    tooltip: { trigger: "axis", formatter: (params: any) => `${params[0].name}<br/>Tension Spike: ${params[0].value === 1 ? 'Yes' : 'No'}` },
-    grid: { left: "5%", right: "5%", bottom: "10%", top: "10%" },
-    xAxis: { type: "category", data: times, show: false },
-    yAxis: { type: "value", max: 1, min: 0, show: false },
-    series: [{
-      name: "Tension Spikes",
-      data: tensions,
-      type: "bar",
-      barWidth: "40%",
-      itemStyle: { color: "#ef4444", borderRadius: [4, 4, 0, 0] },
     }]
   };
 
@@ -156,226 +304,910 @@ export default function AdminDashboard() {
     return acc;
   }, {});
   
-  const moodData = Object.keys(moodCounts).map(key => ({
-    name: key,
-    value: moodCounts[key]
-  }));
-
   const moodOption = {
-    tooltip: { trigger: "item" },
-    legend: { bottom: "0%", left: "center" },
-    series: [
-      {
-        name: "Mood Distribution",
-        type: "pie",
-        radius: ["40%", "70%"],
-        avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 10, borderColor: "#fff", borderWidth: 2 },
-        label: { show: false, position: "center" },
-        emphasis: { label: { show: true, fontSize: 20, fontWeight: "bold" } },
-        labelLine: { show: false },
-        data: moodData.length > 0 ? moodData : [{ name: "No Data", value: 1 }],
-        color: ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"]
-      }
-    ]
+    tooltip: { trigger: "item", backgroundColor: "rgba(15, 23, 42, 0.9)", textStyle: {color: '#fff'} },
+    legend: { bottom: "0%", left: "center", itemStyle: {borderWidth: 0} },
+    series: [{
+      type: "pie", radius: ["50%", "70%"], avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 8, borderColor: "#fff", borderWidth: 2 },
+      label: { show: false },
+      data: Object.keys(moodCounts).length > 0 ? Object.keys(moodCounts).map(k => ({name: k, value: moodCounts[k]})) : [{ name: "No Data", value: 1 }],
+      color: ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"]
+    }]
   };
 
-  // --- ADMIN VIEW (Monitoring Table) ---
-  if (role === "Admin") {
-    return (
-      <div className="p-8 min-h-screen bg-slate-50">
-        <div className="max-w-7xl mx-auto space-y-8">
-          <div>
-            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Admin Live Monitoring</h1>
-            <p className="text-slate-500 font-medium mt-1">Real-time facial states and cognitive focus across all students.</p>
-          </div>
-          
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">User ID</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Focus Score</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Mood / Smile</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Eyebrows</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Yawning</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Talking</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Tense</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
-                {latestData.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-slate-400 font-medium">Waiting for students to connect...</td>
-                  </tr>
-                )}
-                {latestData.map((row: any, i) => (
-                  <tr key={i} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-900 flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                      {row.user_id}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">
-                      <span className={`px-3 py-1 rounded-full text-xs ${row.status === 'Attentive' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                        {row.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-black text-slate-700">{row.focus_score}%</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.mood}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{row.status === 'User Not Found' ? '-' : (row.eyebrows || 'Neutral')}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {row.status === 'User Not Found' ? <span className="text-slate-300">-</span> : (row.yawning ? <span className="text-rose-600 font-bold bg-rose-50 px-2 py-1 rounded">Yes</span> : <span className="text-slate-400">No</span>)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {row.status === 'User Not Found' ? <span className="text-slate-300">-</span> : (row.lip_movement ? <span className="text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded">Active</span> : <span className="text-slate-400">Still</span>)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {row.status === 'User Not Found' ? <span className="text-slate-300">-</span> : (row.is_tense ? <span className="text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded">Tense</span> : <span className="text-slate-400">Relaxed</span>)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- SUPER ADMIN VIEW (ECharts Dashboard) ---
   return (
-    <div className="p-8 pb-20 min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex items-end justify-between">
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
+      {/* Sidebar */}
+      <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-10">
+        <div className="p-6 border-b border-slate-800">
+          <h1 className="text-2xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
+            FocusAI
+          </h1>
+          <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest">{role} Portal</p>
+        </div>
+
+        <div className="p-4 border-b border-slate-800 space-y-3">
           <div>
-            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Super Admin Dashboard</h1>
-            <p className="text-slate-500 font-medium mt-1">Multi-tenant Cognitive Telemetry Access</p>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">
+              Select {industryMode === 'Education' ? 'Subject' : 'Project'}
+            </label>
+            {mySubjects.length === 0 ? (
+              <p className="text-xs text-red-400">You are not assigned to any subjects.</p>
+            ) : (
+              <select id="subject_select" value={selectedProject} onChange={(e) => setSelectedProject(parseInt(e.target.value))} className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm">
+                {mySubjects.map(sub => (
+                  <option key={sub.id} value={sub.id}>{sub.workspace_name} - {sub.name}</option>
+                ))}
+              </select>
+            )}
           </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block mt-2">Active Meeting Code</label>
+            <input 
+              type="text"
+              placeholder="e.g. AI-101"
+              value={activeSessionId}
+              onChange={(e) => setActiveSessionId(e.target.value.toUpperCase())}
+              className="w-full bg-slate-800 border border-slate-700 text-white font-bold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase text-sm"
+            />
+          </div>
+          <button 
+            onClick={handleCreateMeeting}
+            disabled={mySubjects.length === 0}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition-all shadow-md text-sm mt-2"
+          >
+            + Create New Meeting
+          </button>
           
-          <div className="flex flex-col">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">View Telemetry For:</label>
-            <select 
-              value={selectedUser}
-              onChange={(e) => setSelectedUser(e.target.value)}
-              className="bg-white border border-slate-300 text-slate-700 font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-            >
-              <option value="all">Super Admin (System Average)</option>
-              <option value="user_1">User 1</option>
-            </select>
+          <div className="mt-4 pt-4 border-t border-slate-800">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Past Sessions</label>
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {pastSessions.length === 0 && <p className="text-xs text-slate-500">No past sessions.</p>}
+              {pastSessions.map((s: any) => (
+                <button
+                  key={s.session_id}
+                  onClick={() => { setActiveSessionId(s.session_id); setActiveTab("monitoring"); }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    activeSessionId === s.session_id ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <span className="font-bold">{s.session_id}</span> <span className="opacity-60 text-[10px] block">{new Date(s.start_time).toLocaleDateString()}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-          <h2 className="text-xl font-bold text-slate-800 mb-4">Provision New Users</h2>
-          <p className="text-sm text-slate-500 mb-4">Upload a CSV or Excel file with a <code className="bg-slate-100 px-1 py-0.5 rounded">name</code> column (and an optional <code className="bg-slate-100 px-1 py-0.5 rounded">role</code> column) to automatically generate system accounts and passwords.</p>
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          {role === "Admin" && (
+            <>
+              <button onClick={() => setActiveTab("analytics")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <LayoutDashboard size={18} />
+                <span className="font-semibold text-sm">Live Analytics</span>
+              </button>
+              <button onClick={() => setActiveTab("historical")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'historical' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <History size={18} />
+                <span className="font-semibold text-sm">Historical Stats</span>
+              </button>
+              <button onClick={() => setActiveTab("agent")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'agent' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <Bot size={18} />
+                <span className="font-semibold text-sm">AI Agent</span>
+              </button>
+            </>
+          )}
           
-          <div className="flex items-center gap-4">
-            <input 
-              type="file" 
-              accept=".csv, .xlsx, .xls" 
-              onChange={handleFileUpload}
-              disabled={uploading}
-              className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-            />
-            {uploading && <span className="text-sm text-blue-600 font-bold animate-pulse">Uploading...</span>}
-          </div>
+          <button onClick={() => setActiveTab("monitoring")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'monitoring' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+            <Activity size={18} />
+            <span className="font-semibold text-sm">Session Roster</span>
+          </button>
           
-          {uploadMsg && <div className="mt-4 text-sm font-bold text-emerald-600">{uploadMsg}</div>}
+          {role === "Admin" && (
+            <>
+              <button onClick={() => setActiveTab("directory")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'directory' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <FileText size={18} />
+                <span className="font-semibold text-sm">Directory Viewer</span>
+              </button>
+              <button onClick={() => setActiveTab("users")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'users' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <Users size={18} />
+                <span className="font-semibold text-sm">User Provisioning</span>
+              </button>
+              <button onClick={() => setActiveTab("taxonomy")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'taxonomy' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <CheckCircle size={18} />
+                <span className="font-semibold text-sm">Taxonomy & Faculty</span>
+              </button>
+            </>
+          )}
+        </nav>
+        
+        <div className="p-4 border-t border-slate-800">
+          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-400 hover:bg-rose-500/10 transition-all">
+            <LogOut size={18} />
+            <span className="font-semibold text-sm">Sign Out</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-y-auto p-8 relative">
+        <div className="max-w-6xl mx-auto space-y-8">
           
-          {generatedAccounts.length > 0 && (
-            <div className="mt-6 overflow-hidden rounded-xl border border-slate-200">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-bold text-slate-500 uppercase">Name</th>
-                    <th className="px-4 py-3 text-left font-bold text-slate-500 uppercase">Role</th>
-                    <th className="px-4 py-3 text-left font-bold text-slate-500 uppercase">Generated User ID</th>
-                    <th className="px-4 py-3 text-left font-bold text-slate-500 uppercase">Generated Password</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                  {generatedAccounts.map((acc, i) => (
-                    <tr key={i}>
-                      <td className="px-4 py-3 font-medium text-slate-900">{acc.name}</td>
-                      <td className="px-4 py-3 text-slate-600">{acc.role}</td>
-                      <td className="px-4 py-3 font-mono font-bold text-blue-600">{acc.user_id}</td>
-                      <td className="px-4 py-3 font-mono bg-slate-50">{acc.password}</td>
+          {/* Header */}
+          <header className="flex justify-between items-end pb-6 border-b border-slate-200">
+            <div>
+              <h2 className="text-3xl font-black tracking-tight text-slate-800 capitalize">
+                {activeTab.replace("-", " ")}
+              </h2>
+              <p className="text-slate-500 font-medium mt-1">
+                {activeTab === 'analytics' && "System-wide live cognitive insights."}
+                {activeTab === 'historical' && "System-wide historical cognitive trends."}
+                {activeTab === 'monitoring' && "Real-time biometric telemetry stream."}
+                {activeTab === 'agent' && "Chat with the LangGraph RAG Assistant."}
+                {activeTab === 'users' && "Bulk upload and manage user access."}
+              </p>
+            </div>
+            
+            
+            <div className="flex items-center gap-4">
+              {role === 'Admin' && (
+                <div className="bg-white border border-slate-200 rounded-xl flex p-1 shadow-sm">
+                  <button onClick={() => handleIndustryChange("Education")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${industryMode === 'Education' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Education Mode</button>
+                  <button onClick={() => handleIndustryChange("Corporate")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${industryMode === 'Corporate' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Corporate Mode</button>
+                </div>
+              )}
+              {(activeTab === 'historical' || activeTab === 'agent') && (
+                 <select 
+                   value={selectedUser}
+                   onChange={(e) => setSelectedUser(e.target.value)}
+                   className="bg-white border-2 border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm outline-none transition-colors"
+                 >
+                   <option value="all">System Average</option>
+                   {Array.from(new Map(taxonomyTree.flatMap(ws => ws.students || []).map(stu => [stu.username, stu])).values()).map((stu: any) => (
+                     <option key={stu.username} value={stu.username}>{industryMode === 'Education' ? 'Student' : 'Employee'}: {stu.username}</option>
+                   ))}
+                 </select>
+              )}
+            </div>
+          </header>
+
+          {/* Tab Contents */}
+          {activeTab === "analytics" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
+                   <div className="text-4xl font-black text-slate-800">
+                     {data.length > 0 ? Math.round(data.reduce((acc: any, curr: any) => acc + curr.focus_score, 0) / data.length) + "%" : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Average attention of all users</p>
+                </div>
+                
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Attention Loss / Deviation</h3>
+                   <div className="text-4xl font-black text-rose-600">
+                     {data.length > 10 ? 
+                       Math.round(
+                         (data.slice(-10).reduce((a: any, b: any) => a + b.focus_score, 0) / 10) - 
+                         (data.slice(0, 10).reduce((a: any, b: any) => a + b.focus_score, 0) / 10)
+                       ) + "%" : "--"
+                     }
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Start of session vs End of session</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Primary Distractor</h3>
+                   <div className="text-2xl font-black text-amber-600">
+                     {Object.keys(moodCounts).length > 0 ? Object.keys(moodCounts).reduce((a, b) => moodCounts[a] > moodCounts[b] ? a : b) : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Engagement Time</h3>
+                   <div className="text-lg font-black text-slate-700 flex gap-4">
+                     <div className="flex flex-col items-center">
+                       <span className="text-emerald-500">{summaryData.focused_mins}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Focused</span>
+                     </div>
+                     <div className="w-px bg-slate-200"></div>
+                     <div className="flex flex-col items-center">
+                       <span className="text-rose-500">{summaryData.distracted_mins}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Distracted</span>
+                     </div>
+                   </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                  Live Focus Trend
+                </h3>
+                {data.length > 0 ? (
+                  <ReactECharts option={scoreOption} style={{ height: "350px", width: "100%" }} />
+                ) : (
+                  <div className="h-[350px] flex items-center justify-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">Awaiting telemetry data...</div>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="font-bold text-slate-800 mb-4">Live Mood Distribution</h3>
+                    <ReactECharts option={moodOption} style={{ height: "250px", width: "100%" }} />
+                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "historical" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {/* Time Range Selector */}
+              <div className="flex gap-3">
+                {['1d', '7d', '30d'].map(range => (
+                  <button 
+                    key={range}
+                    onClick={() => setTimeRange(range)}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${timeRange === range ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}`}
+                  >
+                    Last {range.replace('d', ' Days')}
+                  </button>
+                ))}
+              </div>
+
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
+                   <div className="text-4xl font-black text-slate-800">
+                     {historicalData ? `${historicalData.overall_avg_focus}%` : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Average attention in selected period</p>
+                </div>
+                
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Attention Loss / Deviation</h3>
+                   <div className={`text-4xl font-black ${historicalData && historicalData.focus_deviation < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                     {historicalData ? `${historicalData.focus_deviation > 0 ? '+' : ''}${historicalData.focus_deviation}%` : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Start of period vs End of period</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Primary Distractor</h3>
+                   <div className="text-2xl font-black text-amber-600">
+                     {historicalData ? historicalData.primary_emotion : "--"}
+                   </div>
+                   <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Engagement Time</h3>
+                   <div className="text-lg font-black text-slate-700 flex gap-4">
+                     <div className="flex flex-col items-center">
+                       <span className="text-emerald-500">{historicalData ? historicalData.focused_mins : 0}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Focused</span>
+                     </div>
+                     <div className="w-px bg-slate-200"></div>
+                     <div className="flex flex-col items-center">
+                       <span className="text-rose-500">{historicalData ? historicalData.distracted_mins : 0}</span>
+                       <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Min Distracted</span>
+                     </div>
+                   </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                  Focus Trend
+                </h3>
+                {historicalData && historicalData.timeline && historicalData.timeline.length > 0 ? (
+                  <ReactECharts option={{
+                    tooltip: { trigger: "axis", backgroundColor: "rgba(15, 23, 42, 0.9)", textStyle: {color: '#fff'} },
+                    xAxis: { type: "category", data: historicalData.timeline.map((d: any) => new Date(d.time).toLocaleDateString()), boundaryGap: false, axisLine: {lineStyle: {color: "#e2e8f0"}}, axisLabel: {color: "#94a3b8"} },
+                    yAxis: { type: "value", min: 0, max: 100, splitLine: {lineStyle: {type: "dashed", color: "#f1f5f9"}}, axisLabel: {color: "#94a3b8"} },
+                    series: [{ data: historicalData.timeline.map((d: any) => d.focus), type: "line", smooth: true, lineStyle: { width: 3, color: "#3b82f6" }, showSymbol: false, areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "rgba(59, 130, 246, 0.2)" }, { offset: 1, color: "rgba(59, 130, 246, 0)" }] } } }]
+                  }} style={{ height: "350px", width: "100%" }} />
+                ) : (
+                  <div className="h-[350px] flex items-center justify-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">Awaiting historical data...</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "monitoring" && (
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100 text-xs uppercase tracking-widest text-slate-500">
+                      <th className="p-4 font-bold pl-6">User ID</th>
+                      <th className="p-4 font-bold">Status</th>
+                      <th className="p-4 font-bold">Focus</th>
+                      <th className="p-4 font-bold">Mood</th>
+                      <th className="p-4 font-bold">Tense</th>
+                      <th className="p-4 font-bold">Eyebrows</th>
+                      <th className="p-4 font-bold">Yawning</th>
+                      <th className="p-4 font-bold">Speaking/Lips</th>
                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {latestData.length === 0 && (
+                       <tr><td colSpan={8} className="p-12 text-center text-slate-400 bg-slate-50/50">No active streams.</td></tr>
+                    )}
+                    {latestData.length > 0 && latestData.map((row: any, i) => (
+                      <tr key={i} onClick={() => handleStudentClick(row.user_id)} className="hover:bg-slate-50 transition-colors group cursor-pointer">
+                        <td className="p-4 pl-6 font-bold flex items-center gap-3 text-slate-700">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping"></span>
+                          {row.user_id}
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${row.status === 'Attentive' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                            {row.status}
+                          </span>
+                        </td>
+                        <td className="p-4 font-black text-slate-800">{row.focus_score}%</td>
+                        <td className="p-4 font-medium text-slate-600">{row.mood}</td>
+                        <td className="p-4">
+                          {row.is_tense ? <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
+                        </td>
+                        <td className="p-4 text-slate-600 font-medium">
+                          {row.eyebrows}
+                        </td>
+                        <td className="p-4">
+                          {row.yawning ? <span className="bg-rose-100 text-rose-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
+                        </td>
+                        <td className="p-4">
+                          {row.lip_movement ? <span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md text-xs font-bold">Moving</span> : <span className="text-slate-400 text-sm">Still</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            
+          )}
+
+          {activeTab === "agent" && (
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 flex flex-col h-[600px] animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-2">
+                {chatLog.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-50">
+                    <Bot size={48} className="mb-4" />
+                    <p>Ask about engagement trends, focus drops, or cognitive stats.</p>
+                  </div>
+                ) : (
+                  chatLog.map((msg, idx) => (
+                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-none shadow-md shadow-blue-500/20' : 'bg-slate-100 text-slate-800 rounded-bl-none'}`}>
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))
+                )}
+                {loading && (
+                   <div className="flex justify-start">
+                      <div className="bg-slate-100 text-slate-500 rounded-2xl rounded-bl-none px-5 py-3 text-sm flex gap-1">
+                        <span className="animate-bounce">.</span><span className="animate-bounce delay-75">.</span><span className="animate-bounce delay-150">.</span>
+                      </div>
+                   </div>
+                )}
+              </div>
+              <form onSubmit={handleChatSubmit} className="relative">
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Query the TimescaleDB..."
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl pl-5 pr-14 py-4 focus:outline-none focus:border-blue-500 focus:bg-white transition-all text-slate-700 font-medium"
+                />
+                <button type="submit" disabled={loading || !query.trim()} className="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-xl transition-colors disabled:opacity-50">
+                  <Bot size={20} />
+                </button>
+              </form>
+            </div>
+          )}
+
+          {activeTab === "users" && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+              
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                <div className="max-w-2xl mx-auto">
+                  <div className="text-center mb-8">
+                    <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <Upload className="text-blue-600" size={32} />
+                    </div>
+                    <h3 className="text-2xl font-black text-slate-800">Bulk Provisioning</h3>
+                    <p className="text-slate-500 mt-2">Upload an Excel (.xlsx), CSV, or PDF file to automatically extract names and emails and generate secure credentials.</p>
+                  </div>
+                  
+                  <form onSubmit={handleBulkUpload} className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <label className={`border-2 rounded-2xl p-4 cursor-pointer transition-all ${uploadRole === 'User' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                        <input type="radio" name="role" value="User" checked={uploadRole === 'User'} onChange={() => setUploadRole("User")} className="hidden" />
+                        <div className="font-bold text-slate-800">{industryMode === 'Education' ? 'User' : 'Employee'} Role</div>
+                        <div className="text-xs text-slate-500 mt-1">Standard tracking participant</div>
+                      </label>
+                      <label className={`border-2 rounded-2xl p-4 cursor-pointer transition-all ${uploadRole === 'Host' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                        <input type="radio" name="role" value="Host" checked={uploadRole === 'Host'} onChange={() => setUploadRole("Host")} className="hidden" />
+                        <div className="font-bold text-slate-800">{industryMode === 'Education' ? 'Host' : 'Manager'} Role</div>
+                        <div className="text-xs text-slate-500 mt-1">Access to live monitoring</div>
+                      </label>
+                    </div>
+
+                    <div className="border-2 border-dashed border-slate-300 rounded-3xl p-10 text-center hover:bg-slate-50 transition-colors relative">
+                      <input 
+                        type="file" 
+                        accept=".xlsx,.xls,.csv,.pdf" 
+                        onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <FileText size={48} className="mx-auto text-slate-300 mb-4" />
+                      <p className="font-bold text-slate-700 text-lg">
+                        {uploadFile ? uploadFile.name : "Drag & drop file or click to browse"}
+                      </p>
+                      <p className="text-sm text-slate-400 mt-1">Supports Excel, CSV, and PDF formats.</p>
+                    </div>
+
+                    <button 
+                      type="submit" 
+                      disabled={!uploadFile || uploading}
+                      className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl transition-all shadow-xl shadow-slate-900/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {uploading ? <span className="animate-pulse">Processing Upload...</span> : "Generate Credentials"}
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              {/* Results Table */}
+              {uploadResult && uploadResult.users && (
+                <div className="bg-emerald-50 rounded-3xl border border-emerald-200 p-8 animate-in fade-in slide-in-from-top-4">
+                  <div className="flex items-center gap-3 mb-6">
+                    <CheckCircle className="text-emerald-600" size={28} />
+                    <h3 className="text-xl font-black text-emerald-900">{uploadResult.message}</h3>
+                  </div>
+                  
+                  <div className="bg-white rounded-2xl overflow-hidden border border-emerald-100">
+                    <table className="w-full text-left border-collapse text-sm">
+                      <thead className="bg-emerald-50/50 text-emerald-800 font-bold">
+                        <tr>
+                          <th className="p-4 border-b border-emerald-100 pl-6">Username</th>
+                          <th className="p-4 border-b border-emerald-100">Email</th>
+                          <th className="p-4 border-b border-emerald-100">Generated Password</th>
+                          <th className="p-4 border-b border-emerald-100">Role</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-emerald-50">
+                        {uploadResult.users.map((u: any, i: number) => (
+                          <tr key={i} className="hover:bg-emerald-50/30">
+                            <td className="p-4 pl-6 font-semibold text-slate-700">{u.username}</td>
+                            <td className="p-4 text-slate-600">{u.email}</td>
+                            <td className="p-4 font-mono text-emerald-600 font-bold bg-emerald-50/50 rounded inline-block my-2 ml-4 px-2">{u.password}</td>
+                            <td className="p-4"><span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded font-bold text-xs">{u.role}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-emerald-700 text-sm mt-4 font-medium flex justify-end">
+                    Please copy or download these credentials now, they cannot be retrieved later.
+                  </p>
+                </div>
+              )}
+
+              {/* Registered Users Table */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 mt-8">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-black text-slate-800">All Registered Users</h3>
+                  <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold text-sm">{registeredUsers.length} Users</span>
+                </div>
+                
+                <div className="overflow-x-auto rounded-2xl border border-slate-100">
+                  <table className="w-full text-left border-collapse text-sm">
+                    <thead className="bg-slate-50 text-slate-500 uppercase tracking-widest text-xs">
+                      <tr>
+                        <th className="p-4 font-bold pl-6 border-b border-slate-100">Username</th>
+                        <th className="p-4 font-bold border-b border-slate-100">Email</th>
+                        <th className="p-4 font-bold border-b border-slate-100">Password</th>
+                        <th className="p-4 font-bold border-b border-slate-100">Role</th>
+                        <th className="p-4 font-bold border-b border-slate-100 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {registeredUsers.length === 0 ? (
+                        <tr><td colSpan={5} className="p-12 text-center text-slate-400">No users found.</td></tr>
+                      ) : (
+                        registeredUsers.map((u: any, i: number) => (
+                          <tr key={i} className="hover:bg-slate-50 transition-colors">
+                            <td className="p-4 pl-6 font-bold text-slate-700">{u.username}</td>
+                            <td className="p-4 text-slate-500 font-medium">{u.email}</td>
+                            <td className="p-4 font-mono text-slate-500 bg-slate-100 rounded px-2 py-1 my-2 inline-block text-xs">{u.password || "Hidden"}</td>
+                            <td className="p-4">
+                              <span className={`px-2 py-1 rounded font-bold text-xs ${u.role === 'Admin' ? 'bg-amber-100 text-amber-700' : u.role === 'Host' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {industryMode === 'Corporate' ? (u.role === 'Host' ? 'Manager' : u.role === 'User' ? 'Employee' : u.role) : u.role}
+                              </span>
+                            </td>
+                            <td className="p-4 text-right">
+                              {u.username !== 'admin' && (
+                                <button onClick={async () => {
+                                  if(!confirm('Delete this user?')) return;
+                                  try {
+                                    const res = await fetch(`http://${window.location.hostname}:8000/api/users/${u.id}`, {method: 'DELETE'});
+                                    const j = await res.json();
+                                    alert(j.message || "Deleted");
+                                    // re-fetch users
+                                    const r2 = await fetch(`http://${window.location.hostname}:8000/api/users/list`);
+                                    const j2 = await r2.json();
+                                    setRegisteredUsers(j2.users || []);
+                                  } catch (e) {
+                                    alert("Error deleting user");
+                                  }
+                                }} className="text-rose-400 hover:text-rose-600 transition-colors p-2 rounded-md hover:bg-rose-50">
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {activeTab === "taxonomy" && role === "Admin" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Create Course */}
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Create New {industryMode === 'Education' ? 'Course' : 'Workspace'}</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Name</label>
+                      <input type="text" id="new_course_name" placeholder="e.g. Computer Science" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Code</label>
+                      <input type="text" id="new_course_code" placeholder="e.g. CS101" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl uppercase" />
+                    </div>
+                    <button onClick={async () => {
+                      const n = (document.getElementById('new_course_name') as HTMLInputElement)?.value;
+                      const c = (document.getElementById('new_course_code') as HTMLInputElement)?.value;
+                      if(!n || !c) return alert("Fill all fields");
+                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/course`, {
+                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name:n, code:c, industry:industryMode})
+                      });
+                      const j = await res.json();
+                      alert(j.message);
+                      // trigger re-fetch
+                      setRefreshKey(prev => prev + 1);
+                    }} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl">
+                      Create
+                    </button>
+                  </div>
+                </div>
+
+                {/* Create Subject */}
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Create New {industryMode === 'Education' ? 'Subject' : 'Project'}</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Course' : 'Workspace'}</label>
+                      <select id="new_sub_course" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
+                        {taxonomyTree.map(ws => <option key={ws.id} value={ws.id}>{ws.name} ({ws.code})</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Name</label>
+                      <input type="text" id="new_sub_name" placeholder="e.g. Data Structures" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl" />
+                    </div>
+                    <button onClick={async () => {
+                      const cid = (document.getElementById('new_sub_course') as HTMLSelectElement)?.value;
+                      const n = (document.getElementById('new_sub_name') as HTMLInputElement)?.value;
+                      if(!cid || !n) return alert("Fill all fields");
+                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/subject`, {
+                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({workspace_id:parseInt(cid), name:n})
+                      });
+                      const j = await res.json();
+                      alert(j.message);
+                      setRefreshKey(prev => prev + 1);
+                    }} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl">
+                      Create
+                    </button>
+                  </div>
+                </div>
+
+                {/* Assign Faculty */}
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 md:col-span-2">
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Assign {industryMode === 'Education' ? 'Faculty / Host' : 'Manager'} to {industryMode === 'Education' ? 'Subject' : 'Project'}</h3>
+                  <div className="flex flex-col md:flex-row gap-4 items-end">
+                    <div className="flex-1 w-full">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Faculty' : 'Manager'}</label>
+                      <select id="assign_user" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
+                        {registeredUsers.filter(u => u.role === "Host" || u.role === "Admin").map(u => (
+                          <option key={u.username} value={u.username}>{u.username}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex-1 w-full">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Subject' : 'Project'}</label>
+                      <select id="assign_sub" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
+                        {taxonomyTree.map(ws => (
+                          <optgroup key={ws.id} label={ws.name}>
+                            {ws.subjects.map((sub: any) => (
+                              <option key={sub.id} value={`${ws.id},${sub.id}`}>{sub.name}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                    <button onClick={async () => {
+                      const u = (document.getElementById('assign_user') as HTMLSelectElement)?.value;
+                      const val = (document.getElementById('assign_sub') as HTMLSelectElement)?.value;
+                      if(!u || !val) return alert("Select user and subject");
+                      const [wid, pid] = val.split(',');
+                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/assign`, {
+                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({username: u, workspace_id: parseInt(wid), project_id: parseInt(pid)})
+                      });
+                      const j = await res.json();
+                      alert(j.message);
+                      setRefreshKey(prev => prev + 1);
+                    }} className="w-full md:w-auto px-8 bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl">
+                      Assign
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+              
+              {/* Hierarchy Tree View */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 mt-6">
+                <h3 className="text-xl font-black text-slate-800 mb-6">Current Hierarchy</h3>
+                <div className="space-y-4">
+                  {taxonomyTree.map(ws => (
+                    <div key={ws.id} className="border border-slate-200 rounded-2xl p-4 bg-slate-50">
+                      <div className="flex justify-between items-center">
+                        <h4 className="font-black text-lg text-slate-800">{ws.name} <span className="text-slate-400 font-medium text-sm">({ws.code})</span></h4>
+                        <button onClick={async () => {
+                          if(!confirm('Delete this course?')) return;
+                          await fetch(`http://${window.location.hostname}:8000/api/taxonomy/course/${ws.id}`, {method: 'DELETE'});
+                          setRefreshKey(prev => prev + 1);
+                        }} className="text-rose-400 hover:text-rose-600 transition-colors p-1 rounded-md hover:bg-rose-50">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      <div className="mt-3 ml-4 space-y-2 border-l-2 border-blue-200 pl-4">
+                        {ws.subjects.map((sub: any) => (
+                          <div key={sub.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex flex-col gap-2">
+                            <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                              <span className="font-bold text-slate-700">{sub.name}</span>
+                              <button onClick={async () => {
+                                if(!confirm('Delete this subject?')) return;
+                                await fetch(`http://${window.location.hostname}:8000/api/taxonomy/subject/${sub.id}`, {method: 'DELETE'});
+                                setRefreshKey(prev => prev + 1);
+                              }} className="text-rose-400 hover:text-rose-600">
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{industryMode === 'Education' ? 'Hosts:' : 'Managers:'}</span>
+                              {sub.hosts.length > 0 ? sub.hosts.map((h: any) => (
+                                <span key={h.id} className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded-md flex items-center gap-2 border border-slate-200">
+                                  {h.username}
+                                  <button onClick={async () => {
+                                    if(!confirm('Remove this host?')) return;
+                                    await fetch(`http://${window.location.hostname}:8000/api/taxonomy/assign/${h.id}/${sub.id}`, {method: 'DELETE'});
+                                    setRefreshKey(prev => prev + 1);
+                                  }} className="text-rose-400 hover:text-rose-600">
+                                    <Trash2 size={12} />
+                                  </button>
+                                </span>
+                              )) : <span className="text-xs text-slate-400 italic">None</span>}
+                            </div>
+                          </div>
+                        ))}
+                        {ws.subjects.length === 0 && <p className="text-sm text-slate-400">No subjects added yet.</p>}
+                      </div>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                  {taxonomyTree.length === 0 && <p className="text-slate-500 text-center py-8">No hierarchy created yet.</p>}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {activeTab === "directory" && role === "Admin" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {/* Hierarchical Bulk Upload */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                <h3 className="text-xl font-black text-slate-800 mb-2">Automated Hierarchy Import</h3>
+                <p className="text-slate-500 text-sm mb-6">
+                {industryMode === 'Education' ? (
+                  <>Upload an Excel (.xlsx) or CSV file containing <strong>Course_Name, Subject_Name, Faculty_Name, Faculty_Email, Student_Name, Student_Email</strong> to automatically build your entire directory.</>
+                ) : (
+                  <>Upload an Excel (.xlsx) or CSV file containing <strong>Department_Name, Project_Name, Manager_Name, Manager_Email, Employee_Name, Employee_Email</strong> to automatically build your entire directory.</>
+                )}
+                </p>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!uploadFile) return alert("Please select a file");
+                  setUploading(true);
+                  const formData = new FormData();
+                  formData.append("file", uploadFile);
+                  formData.append("industry", industryMode);
+                  try {
+                    const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/bulk-import`, {
+                      method: "POST", body: formData
+                    });
+                    const json = await res.json();
+                    if (!res.ok) throw new Error(json.detail);
+                    alert(`✅ ${json.message}`);
+                    setActiveTab("directory"); // Re-fetch
+                  } catch (err: any) {
+                    alert("Error: " + err.message);
+                  }
+                  setUploading(false);
+                }} className="space-y-4">
+                  <div className="flex items-center justify-center w-full">
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-200 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Upload className="w-8 h-8 mb-2 text-slate-400" />
+                        <p className="mb-1 text-sm text-slate-600"><span className="font-bold">Click to upload</span> or drag and drop</p>
+                        <p className="text-xs text-slate-400">.xlsx or .csv only</p>
+                      </div>
+                      <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+                    </label>
+                  </div>
+                  {uploadFile && <p className="text-sm font-semibold text-emerald-600">Selected: {uploadFile.name}</p>}
+                  
+                  <button type="submit" disabled={uploading} className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold py-3 rounded-xl shadow-md transition-all">
+                    {uploading ? 'Processing...' : 'Process Hierarchy'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Nested Directory Viewer */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                <h3 className="text-xl font-black text-slate-800 mb-6">All {industryMode === 'Education' ? 'Courses' : 'Workspaces'} & Users</h3>
+                
+                <div className="space-y-4">
+                  {directoryTree.map(ws => (
+                    <details key={ws.id} className="group border border-slate-200 rounded-2xl bg-slate-50 overflow-hidden">
+                      <summary className="font-black text-lg text-slate-800 p-4 cursor-pointer hover:bg-slate-100 transition-colors list-none flex justify-between items-center">
+                        <span>{ws.name} <span className="text-slate-400 font-medium text-sm">({ws.code})</span></span>
+                        <span className="text-sm text-blue-600 group-open:hidden">+ Expand</span>
+                        <span className="text-sm text-blue-600 hidden group-open:block">- Collapse</span>
+                      </summary>
+                      
+                      <div className="p-4 pt-0 space-y-4 border-t border-slate-200 bg-white">
+                        
+                        {/* Workspace Students */}
+                        {ws.students.length > 0 && (
+                          <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                            <h5 className="font-bold text-sm text-blue-800 mb-2 uppercase tracking-widest">Enrolled {industryMode === 'Education' ? 'Students' : 'Users'}</h5>
+                            <div className="flex flex-wrap gap-2">
+                              {ws.students.map((stu: any) => (
+                                <span key={stu.id} className="px-3 py-1 bg-white border border-blue-200 text-blue-700 text-sm font-semibold rounded-full shadow-sm">
+                                  {stu.username} <span className="text-blue-400 font-normal ml-1 text-xs">({stu.email})</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Subjects */}
+                        {ws.subjects.map((sub: any) => (
+                          <details key={sub.id} className="group/sub border border-slate-100 rounded-xl bg-slate-50 overflow-hidden ml-4 shadow-sm">
+                            <summary className="font-bold text-slate-700 p-3 cursor-pointer hover:bg-slate-100 transition-colors list-none flex justify-between items-center">
+                              {sub.name}
+                              <span className="text-xs text-slate-400">View Users</span>
+                            </summary>
+                            
+                            <div className="p-4 pt-0 space-y-4 border-t border-slate-100 bg-white grid grid-cols-1 md:grid-cols-2 gap-4">
+                              
+                              {/* Faculty */}
+                              <div>
+                                <h6 className="font-bold text-xs text-amber-700 mb-2 uppercase tracking-widest bg-amber-50 inline-block px-2 py-1 rounded">Assigned Faculty</h6>
+                                <div className="space-y-1">
+                                  {sub.faculty.length === 0 ? <p className="text-xs text-slate-400">None assigned</p> : sub.faculty.map((f: any) => (
+                                    <div key={f.id} className="text-sm font-semibold text-slate-700">{f.username} <span className="text-slate-400 font-normal">({f.email})</span></div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Students */}
+                              <div>
+                                <h6 className="font-bold text-xs text-emerald-700 mb-2 uppercase tracking-widest bg-emerald-50 inline-block px-2 py-1 rounded">Enrolled {industryMode === 'Education' ? 'Students' : 'Users'}</h6>
+                                <div className="space-y-1">
+                                  {sub.students.length === 0 ? <p className="text-xs text-slate-400">None enrolled</p> : sub.students.map((stu: any) => (
+                                    <div key={stu.id} className="text-sm font-semibold text-slate-700">{stu.username} <span className="text-slate-400 font-normal">({stu.email})</span></div>
+                                  ))}
+                                </div>
+                              </div>
+
+                            </div>
+                          </details>
+                        ))}
+                        
+                      </div>
+                    </details>
+                  ))}
+                  {directoryTree.length === 0 && <p className="text-slate-500 text-center py-8">No hierarchical data found.</p>}
+                </div>
+
+              </div>
+
             </div>
           )}
         </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-           <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-             <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
-             Real-Time Focus Trend
-           </h2>
-           {data.length > 0 ? (
-             <ReactECharts option={scoreOption} style={{ height: "400px", width: "100%" }} />
-           ) : (
-             <div className="h-[400px] flex items-center justify-center text-slate-400 font-medium">Waiting for data...</div>
-           )}
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-              <h2 className="text-lg font-bold text-slate-800 mb-2">Facial Tension Spikes</h2>
-              <p className="text-sm text-slate-500 mb-6">Frequency of brow furrowing and lip compression.</p>
-              <ReactECharts option={tensionOption} style={{ height: "250px", width: "100%" }} />
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-              <h2 className="text-lg font-bold text-slate-800 mb-2">Mood Distribution</h2>
-              <p className="text-sm text-slate-500 mb-6">Breakdown of cognitive emotional states.</p>
-              <ReactECharts option={moodOption} style={{ height: "250px", width: "100%" }} />
-            </div>
-        </div>
-
-        {/* Autonomous Agent Chat Interface */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mt-8">
-           <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2">
-             <span className="w-4 h-4 rounded-full bg-blue-500"></span>
-             Agentic AI Analyst (RAG)
-           </h2>
-           <p className="text-sm text-slate-500 mb-6">Ask the Autonomous Agent questions about the TimescaleDB telemetry data.</p>
-           
-           <div className="bg-slate-50 rounded-xl p-4 h-64 overflow-y-auto mb-4 border border-slate-100 flex flex-col gap-3">
-              {chatLog.length === 0 ? (
-                <div className="text-slate-400 text-sm text-center mt-auto mb-auto">Try asking: "Did the user get distracted in the last 5 minutes?"</div>
-              ) : (
-                chatLog.map((msg, idx) => (
-                  <div key={idx} className={`p-3 rounded-lg max-w-[80%] text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white self-end rounded-br-none' : 'bg-white text-slate-800 border border-slate-200 self-start rounded-bl-none shadow-sm'}`}>
-                    <span className="font-bold block mb-1 text-xs opacity-75">{msg.role === 'user' ? 'Admin' : 'AI Agent'}</span>
-                    {msg.content}
+        
+        {/* Student History Modal */}
+        {selectedStudentHistory !== null && (
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-200 border border-slate-200">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/80 backdrop-blur-md">
+                <div>
+                  <h3 className="text-xl font-black text-slate-800">{selectedStudentName}</h3>
+                  <div className="flex items-center gap-3 mt-1">
+                    <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Session Timeline</p>
+                    <span className="text-slate-300">•</span>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Overall Score: <span className={selectedStudentOverallScore >= 60 ? 'text-emerald-500' : 'text-rose-500'}>{selectedStudentOverallScore}%</span></p>
                   </div>
-                ))
-              )}
-              {loading && <div className="text-slate-400 text-sm animate-pulse">Agent is thinking and querying TimescaleDB...</div>}
-           </div>
-
-           <form onSubmit={handleChatSubmit} className="flex gap-2">
-             <input
-               type="text"
-               value={query}
-               onChange={(e) => setQuery(e.target.value)}
-               placeholder="Ask the AI about the cognitive data..."
-               className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-               disabled={loading}
-             />
-             <button
-               type="submit"
-               disabled={loading}
-               className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50"
-             >
-               Send
-             </button>
-           </form>
-        </div>
-      </div>
+                </div>
+                <button onClick={() => setSelectedStudentHistory(null)} className="text-slate-400 hover:text-rose-500 p-2.5 rounded-full hover:bg-rose-100 transition-colors focus:outline-none">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto flex-1 bg-white">
+                {selectedStudentHistory.length === 0 ? (
+                  <div className="h-40 flex flex-col items-center justify-center text-slate-400">
+                    <History size={32} className="mb-3 opacity-20" />
+                    <p className="text-sm font-medium">No timeline data recorded yet.</p>
+                  </div>
+                ) : (
+                  <div className="relative border-l-2 border-slate-100 ml-4 space-y-8">
+                    {selectedStudentHistory.map((event: any, i: number) => (
+                      <div key={i} className="relative pl-6 group">
+                        <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-4 border-white shadow-sm transition-transform group-hover:scale-125 ${
+                          event.focus_score >= 60 ? 'bg-emerald-500' :
+                          event.focus_score === 0 ? 'bg-rose-600' : 'bg-amber-500'
+                        }`}></div>
+                        
+                        <div className="flex flex-col bg-slate-50/50 p-3 rounded-xl border border-slate-50 group-hover:border-slate-100 transition-colors">
+                          <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">
+                            {new Date(event.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {event.end_time && ` - ${new Date(event.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                          </span>
+                          <div className="mt-1 flex items-center gap-2">
+                            <span className={`text-sm font-bold ${
+                              event.focus_score >= 60 ? 'text-emerald-600' :
+                              event.focus_score === 0 ? 'text-rose-600' : 'text-amber-600'
+                            }`}>
+                              {event.status}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

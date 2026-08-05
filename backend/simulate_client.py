@@ -1,9 +1,10 @@
 import asyncio
 import websockets
 import json
+import time
 
 async def simulate():
-    uri = "ws://localhost:8000/ws/user/simulated_user_1"
+    uri = "ws://localhost:8000/ws/user/karanjkarak078/AI-123"
     
     dummy_payload = {
         "right_eye": [{"x": 0.5, "y": 0.5, "z": 0.1} for _ in range(16)],

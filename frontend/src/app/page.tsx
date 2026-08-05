@@ -7,16 +7,14 @@ export default function LoginScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setLoading(true);
 
     try {
-      const response = await fetch("http://localhost:8000/api/auth/login", {
+      const response = await fetch(`http://${window.location.hostname}:8000/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password })
@@ -29,9 +27,9 @@ export default function LoginScreen() {
       const data = await response.json();
       
       // Store JWT token and user info
-      localStorage.setItem("focusai_token", data.access_token);
-      localStorage.setItem("focusai_user_id", data.user_id);
-      localStorage.setItem("focusai_role", data.role);
+      sessionStorage.setItem("focusai_token", data.access_token);
+      sessionStorage.setItem("focusai_user_id", data.user_id);
+      sessionStorage.setItem("focusai_role", data.role);
       
       if (data.role === "User") {
         router.push("/user");
@@ -40,8 +38,6 @@ export default function LoginScreen() {
       }
     } catch (err: any) {
       setError(err.message);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -80,14 +76,11 @@ export default function LoginScreen() {
             />
           </div>
 
-          {error && <div className="text-rose-500 font-bold text-sm bg-rose-50 p-3 rounded-lg text-center">{error}</div>}
-
           <button 
             type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-3 px-6 rounded-xl transition-colors mt-4 shadow-lg shadow-blue-600/30"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl transition-colors mt-4 shadow-lg shadow-blue-600/30"
           >
-            {loading ? "Authenticating..." : "Secure Login"}
+            Secure Login
           </button>
         </form>
       </div>

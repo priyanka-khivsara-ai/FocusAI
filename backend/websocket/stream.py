@@ -1,5 +1,8 @@
 from fastapi import APIRouter, WebSocket
 import numpy as np
+from sqlalchemy import text
+import time
+import random
 
 from database.connection import SessionLocal
 from models.timescale import AttentionTimeline, EmotionTimeline, FacialMetrics
@@ -12,12 +15,17 @@ from services.attention.scorer import calculate_final_score, handle_no_face, res
 
 router = APIRouter()
 
-@router.websocket("/ws/user/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: str):
+@router.websocket("/ws/user/{user_id}/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str):
     await websocket.accept()
     print(f"[{user_id}] Connected to AI Telemetry stream.")
     
     try:
+        pose_history = []
+        last_blink_time = time.time()
+        spoof_detected = False
+        spoof_reason = ""
+        
         while True:
             data = await websocket.receive_json()
             attention_score = "No Face Detected"
@@ -100,7 +108,40 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                 
                 final_score = calculate_final_score(avg_ear, pitch, yaw, gaze_distracted, mood)
                 
+                # Track blink transitions so static photos with closed/small eyes don't reset the timer forever
                 if avg_ear < 0.22:
+                    if not getattr(websocket, "is_eyes_closed", False):
+                        last_blink_time = time.time()
+                        websocket.is_eyes_closed = True
+                else:
+                    websocket.is_eyes_closed = False
+                
+                # Passive Liveness 1: Blink Timeout
+                if time.time() - last_blink_time > 40:
+                    spoof_detected = True
+                    spoof_reason = "No Blink Detected (Static Image)"
+                
+                # Passive Liveness 2: Pose Variance
+                pose_history.append((pitch, yaw, roll))
+                if len(pose_history) > 100:
+                    pose_history.pop(0)
+                    
+                if len(pose_history) == 100:
+                    if np.var([p[0] for p in pose_history]) < 0.0001 and np.var([p[1] for p in pose_history]) < 0.0001 and np.var([p[2] for p in pose_history]) < 0.0001:
+                        spoof_detected = True
+                        spoof_reason = "No Micro-Movements (Static Image)"
+
+                if spoof_detected:
+                    final_score = 0
+                    mood = "Spoofing Detected"
+                    status = spoof_reason
+                    # Stop showing live facial data in the dashboard
+                    smile_type = "None"
+                    is_yawning = False
+                    eyebrow_state = "Neutral"
+                    is_tense = False
+                    is_moving_lips = False
+                elif avg_ear < 0.22:
                     status = "Blinking / Eyes Closed"
                 elif abs(yaw) > 25 or abs(pitch) > 20: 
                     status = "Distracted"
@@ -111,6 +152,22 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                 else:
                     status = "Attentive"
                     
+                # CALIBRATION: Fetch ground truth offset
+                offset = 0
+                try:
+                    async with SessionLocal() as db:
+                        cal_res = await db.execute(text("""
+                            SELECT c.base_offset FROM calibrations c 
+                            JOIN users u ON c.user_id = u.id 
+                            WHERE u.username = :uid
+                        """), {"uid": user_id})
+                        cal_row = cal_res.fetchone()
+                        if cal_row: offset = cal_row.base_offset
+                except Exception as e:
+                    pass
+                
+                final_score = max(0, min(100, final_score + offset))
+                
                 attention_score = f"{status} | Overall Focus: {final_score}%"
                 score = final_score
 
@@ -129,7 +186,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
             
             try:
                 async with SessionLocal() as db:
-                    s_id = f"session_{id(websocket)}"
+                    s_id = session_id
                     
                     att_rec = AttentionTimeline(
                         session_id=s_id,
