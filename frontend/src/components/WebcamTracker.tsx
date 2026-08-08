@@ -86,7 +86,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
 
       setStatus("Connecting to Backend Server...");
       const userId = sessionStorage.getItem("focusai_user_id") || "unknown";
-      ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/user/${encodeURIComponent(userId)}/${encodeURIComponent(sessionId)}`);
+      ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/user/${encodeURIComponent(userId)}/${encodeURIComponent(sessionId)}`);
       
       ws.onmessage = (event) => {
         // Handle message (currently unused by frontend)
@@ -178,32 +178,30 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
   }, []);
 
   return (
-    <div className="flex flex-col items-center bg-white p-6 rounded-2xl shadow-xl border border-slate-100 max-w-2xl w-full">
-      <div className="w-full flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold text-slate-800">Edge Tracker</h2>
+    <div className="absolute inset-0 w-full h-full bg-black z-40 overflow-hidden">
+      <video 
+        ref={videoRef} 
+        className="absolute inset-0 w-full h-full object-cover transform -scale-x-100 opacity-90" 
+        playsInline
+        muted
+      />
+      
+      {/* Overlay UI */}
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-black/60 backdrop-blur-xl px-8 py-4 rounded-full border border-white/10 shadow-2xl z-50">
+        <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_15px_rgba(16,185,129,1)]"></div>
+        <div className="flex flex-col">
+          <p className="text-sm font-bold text-white uppercase tracking-widest leading-none">Secure Telemetry Active</p>
+          <p className="text-[10px] text-emerald-400 font-mono mt-1 opacity-80 tracking-widest">SESSION: {sessionId}</p>
+        </div>
       </div>
       
-      <div className="relative w-full aspect-video bg-slate-900 rounded-xl overflow-hidden mb-6 shadow-inner">
-        <video 
-          ref={videoRef} 
-          className="absolute inset-0 w-full h-full object-cover transform -scale-x-100 opacity-80" 
-          playsInline
-          muted
-        />
-        {status && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-slate-900/40 backdrop-blur-sm">
-            <div className="px-4 py-2 bg-slate-800 rounded-lg text-white font-mono text-sm shadow-lg border border-slate-700">
-               {status}
-            </div>
+      {status && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/60 backdrop-blur-md z-50 transition-all duration-500">
+          <div className="px-8 py-5 bg-black/80 rounded-3xl text-white font-mono text-xl shadow-2xl border border-white/10">
+             {status}
           </div>
-        )}
-      </div>
-
-      <div className="w-full bg-slate-50 rounded-xl p-6 border border-slate-200 flex items-center justify-center gap-3">
-        <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
-        <p className="text-sm font-bold text-slate-700 uppercase tracking-wider">Secure Telemetry Active</p>
-      </div>
-      
+        </div>
+      )}
     </div>
   );
 }

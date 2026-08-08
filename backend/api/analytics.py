@@ -131,18 +131,19 @@ async def get_host_subjects_analytics(username: str, db: AsyncSession = Depends(
                 p.id as project_id,
                 p.name as project_name,
                 u.username as student_username,
+                u.full_name as student_full_name,
                 AVG(a.attention_score) as avg_attention,
                 MIN(a.attention_score) as min_attention,
                 STRING_AGG(DISTINCT e.emotion, ', ') as moods
             FROM projects p
             JOIN enrollments he ON he.project_id = p.id
             JOIN users h ON h.id = he.user_id AND h.username = :username
-            JOIN enrollments se ON se.project_id = p.id
+            JOIN enrollments se ON se.workspace_id = p.workspace_id AND se.project_id IS NULL
             JOIN users u ON u.id = se.user_id AND u.username != :username
             LEFT JOIN sessions s ON s.project_id = p.id
             LEFT JOIN attention_timeline a ON a.user_id = u.username AND a.session_id = s.id
             LEFT JOIN emotion_timeline e ON e.user_id = u.username AND e.session_id = s.id AND e.timestamp = a.timestamp
-            GROUP BY p.id, p.name, u.username
+            GROUP BY p.id, p.name, u.username, u.full_name
         """)
         result = await db.execute(query, {"username": username})
         records = result.fetchall()
@@ -157,11 +158,12 @@ async def get_host_subjects_analytics(username: str, db: AsyncSession = Depends(
                     "students": []
                 }
             
-            spoofed = "YES" if (r.min_attention == 0 or (r.moods and "Spoofing" in r.moods)) else "No"
+            spoofed = "YES" if (r.moods and "Spoofing" in r.moods) else "No"
             avg = round(r.avg_attention) if r.avg_attention is not None else None
             
             subjects_map[pid]["students"].append({
                 "username": r.student_username,
+                "full_name": r.student_full_name or r.student_username,
                 "avg_attention": avg,
                 "spoofed": spoofed
             })

@@ -18,7 +18,17 @@ router = APIRouter()
 @router.websocket("/ws/user/{user_id}/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str):
     await websocket.accept()
-    print(f"[{user_id}] Connected to AI Telemetry stream.")
+    
+    # Validate session status
+    async with SessionLocal() as db:
+        res = await db.execute(text("SELECT status FROM sessions WHERE id = :sid"), {"sid": session_id})
+        session = res.fetchone()
+        if not session or session[0] != "active":
+            await websocket.close(code=1008, reason="Session is not active")
+            print(f"[{user_id}] Rejected connection to ended/invalid session: {session_id}")
+            return
+            
+    print(f"[{user_id}] Connected to AI Telemetry stream for session {session_id}.")
     
     try:
         pose_history = []
@@ -117,19 +127,19 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                     websocket.is_eyes_closed = False
                 
                 # Passive Liveness 1: Blink Timeout
-                if time.time() - last_blink_time > 40:
-                    spoof_detected = True
-                    spoof_reason = "No Blink Detected (Static Image)"
+                # if time.time() - last_blink_time > 40:
+                #     spoof_detected = True
+                #     spoof_reason = "No Blink Detected (Static Image)"
                 
                 # Passive Liveness 2: Pose Variance
-                pose_history.append((pitch, yaw, roll))
-                if len(pose_history) > 100:
-                    pose_history.pop(0)
+                # pose_history.append((pitch, yaw, roll))
+                # if len(pose_history) > 600:
+                #     pose_history.pop(0)
                     
-                if len(pose_history) == 100:
-                    if np.var([p[0] for p in pose_history]) < 0.0001 and np.var([p[1] for p in pose_history]) < 0.0001 and np.var([p[2] for p in pose_history]) < 0.0001:
-                        spoof_detected = True
-                        spoof_reason = "No Micro-Movements (Static Image)"
+                # if len(pose_history) == 600:
+                #     if np.var([p[0] for p in pose_history]) < 0.0001 and np.var([p[1] for p in pose_history]) < 0.0001 and np.var([p[2] for p in pose_history]) < 0.0001:
+                #         spoof_detected = True
+                #         spoof_reason = "No Micro-Movements (Static Image)"
 
                 if spoof_detected:
                     final_score = 0

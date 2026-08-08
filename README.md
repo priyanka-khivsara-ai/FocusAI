@@ -141,4 +141,10 @@ npm run dev
 ```
 *(The web portal runs at `http://localhost:3000`)*
 
-
+# Create new admin
+cd backend
+.venv/bin/python create_admin.py \
+  --username "bits_pilani" \
+  --password "admin123" \
+  --name "BITS Pilani Admin" \
+  --email "admin@bits-pilani.ac.in"

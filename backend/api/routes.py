@@ -36,6 +36,7 @@ def format_records(records):
             "is_tense": bool(r.is_tense) if hasattr(r, 'is_tense') else False,
             "mood": r.mood or "Neutral",
             "user_id": r.user_id,
+            "full_name": getattr(r, 'full_name', r.user_id) or r.user_id,
             "eyebrows": eyebrows,
             "yawning": bool(r.yawning) if hasattr(r, 'yawning') else False,
             "lip_movement": bool(r.lip_movement) if hasattr(r, 'lip_movement') else False
@@ -125,7 +126,7 @@ async def get_latest_telemetry(session_id: str):
         async with SessionLocal() as db:
             query = text("""
                 SELECT DISTINCT ON (a.user_id) 
-                       a.timestamp, a.attention_score as focus_score, a.user_id,
+                       a.timestamp, a.attention_score as focus_score, a.user_id, u.full_name,
                        e.emotion as mood, f.smile_type,
                        f.is_tense, f.yawning, f.lip_movement,
                        f.eyebrow_raise, f.eyebrow_lower
@@ -286,7 +287,7 @@ async def get_user_subject_timeline(project_id: int, user_id: str):
             query = text("""
                 SELECT a.timestamp, a.attention_score as focus_score, e.emotion as mood, a.session_id
                 FROM attention_timeline a
-                LEFT JOIN emotion_timeline e ON a.timestamp = e.timestamp AND a.session_id = e.session_id
+                LEFT JOIN emotion_timeline e ON a.timestamp = e.timestamp AND a.session_id = e.session_id AND a.user_id = e.user_id
                 JOIN sessions s ON s.id = a.session_id
                 WHERE s.project_id = :project_id AND a.user_id = :user_id
                 ORDER BY a.timestamp ASC
@@ -313,7 +314,7 @@ async def get_user_subject_timeline(project_id: int, user_id: str):
                         avg_score = sum(current_block_scores) / len(current_block_scores)
                         most_frequent_mood = max(set(current_block_moods), key=current_block_moods.count) if current_block_moods else "Neutral"
                         
-                        if 0 in current_block_scores:
+                        if "Spoofing" in current_block_moods:
                             status = "Spoofing Detected"
                             avg_score = 0
                         elif avg_score < 60:
@@ -341,7 +342,7 @@ async def get_user_subject_timeline(project_id: int, user_id: str):
                 avg_score = sum(current_block_scores) / len(current_block_scores)
                 most_frequent_mood = max(set(current_block_moods), key=current_block_moods.count) if current_block_moods else "Neutral"
                 
-                if 0 in current_block_scores:
+                if "Spoofing" in current_block_moods:
                     status = "Spoofing Detected"
                     avg_score = 0
                 elif avg_score < 60:

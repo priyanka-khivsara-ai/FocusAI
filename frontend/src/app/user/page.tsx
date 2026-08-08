@@ -9,38 +9,76 @@ function UserPortalContent() {
   const searchParams = useSearchParams();
   const [meetingCode, setMeetingCode] = useState("");
   const [joined, setJoined] = useState(false);
+  const [username, setUsername] = useState("");
+  const [fullName, setFullName] = useState("");
+
+  const validateAndJoin = async (code: string) => {
+    try {
+      const currentUser = username || sessionStorage.getItem("focusai_user_id") || "";
+      const url = currentUser ? 
+        `/api/sessions/validate/${code.toUpperCase()}?username=${currentUser}` :
+        `/api/sessions/validate/${code.toUpperCase()}`;
+        
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.valid) {
+        setMeetingCode(code);
+        setJoined(true);
+      } else {
+        alert(data.reason || "Invalid meeting code.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error validating meeting code.");
+    }
+  };
 
   useEffect(() => {
+    const savedUser = sessionStorage.getItem("focusai_user_id");
+    if (savedUser) setUsername(savedUser);
+    const savedName = sessionStorage.getItem("focusai_full_name");
+    if (savedName) setFullName(savedName);
     const code = searchParams.get("code");
     if (code) {
-      setMeetingCode(code);
-      setJoined(true);
+      validateAndJoin(code);
     }
   }, [searchParams]);
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (meetingCode.trim()) {
-      setJoined(true);
+      validateAndJoin(meetingCode.trim());
     }
   };
 
   if (joined && meetingCode) {
     return (
-      <main className="flex min-h-screen flex-col items-center py-12 px-4 bg-slate-100">
-        <div className="mb-8 text-center">
-          <h1 className="text-4xl font-black text-slate-900 mb-2">
-            FocusAI <span className="text-emerald-600">Secure Node</span>
-          </h1>
-          <p className="text-slate-500 font-medium">Room: {meetingCode.toUpperCase()}</p>
-        </div>
+      <main className="relative w-screen h-screen bg-black overflow-hidden">
         <WebcamTracker sessionId={meetingCode.toUpperCase()} />
+        <div className="absolute top-6 right-6 flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 shadow-2xl z-50">
+          <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white font-black text-sm uppercase">
+            {fullName ? fullName.charAt(0).toUpperCase() : username ? username.charAt(0).toUpperCase() : "U"}
+          </div>
+          <div className="flex flex-col">
+            <span className="font-bold text-white text-sm leading-none">{fullName || username || "User"}</span>
+            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mt-1">Student</span>
+          </div>
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center py-12 px-4 bg-slate-100">
+    <main className="relative flex min-h-screen flex-col items-center justify-center py-12 px-4 bg-slate-100">
+      <div className="absolute top-4 right-4 flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
+        <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-black text-sm uppercase">
+          {fullName ? fullName.charAt(0).toUpperCase() : username ? username.charAt(0).toUpperCase() : "U"}
+        </div>
+        <div className="flex flex-col">
+          <span className="font-bold text-slate-700 text-sm leading-none">{fullName || username || "User"}</span>
+          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Student</span>
+        </div>
+      </div>
       <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-slate-200">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-black text-slate-900 mb-2">Join Meeting</h1>

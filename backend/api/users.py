@@ -161,6 +161,7 @@ async def list_users(industry: str = "Education", db: AsyncSession = Depends(get
         users.append({
             "id": user.id,
             "username": user.username,
+            "full_name": user.full_name or user.username,
             "email": user.email,
             "password": user.password,
             "role": role_name

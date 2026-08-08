@@ -177,14 +177,37 @@ async def bulk_import_taxonomy(industry: str = Form("Education"), file: UploadFi
     
     try:
         if filename.endswith(".xlsx") or filename.endswith(".xls"):
-            df = pd.read_excel(io.BytesIO(contents))
+            sheets_dict = pd.read_excel(io.BytesIO(contents), header=None, sheet_name=None)
+            df = list(sheets_dict.values())[0]  # Just take the first sheet for taxonomy
         elif filename.endswith(".csv"):
-            df = pd.read_csv(io.BytesIO(contents))
+            df = pd.read_csv(io.BytesIO(contents), header=None)
         else:
             raise HTTPException(status_code=400, detail="Only .xlsx or .csv files are supported.")
             
-        # Clean column names
-        df.columns = [str(c).strip().lower() for c in df.columns]
+        # Find the header row
+        header_idx = -1
+        for idx, row in df.iterrows():
+            row_values = [str(x).strip().lower().replace(" ", "_") for x in row.values]
+            if 'course_name' in row_values or 'student_prn' in row_values:
+                header_idx = idx
+                break
+                
+        if header_idx != -1:
+            df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.iloc[header_idx]]
+            df = df.iloc[header_idx + 1:]
+        else:
+            # Fallback to assuming first row is header
+            df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.iloc[0]]
+            df = df.iloc[1:]
+            
+        required_columns = ['course_name', 'course_code', 'subject_name', 'faculty_name', 'faculty_email', 'student_name', 'student_prn', 'student_email']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            raise HTTPException(status_code=400, detail=f"Invalid file format! Missing required columns: {', '.join(missing_columns)}. Please make sure you are uploading the correct 'demo_upload_multi.csv' file.")
+        print("DEBUG COLUMNS:", df.columns)
+        if len(df) > 0:
+            print("DEBUG ROW 0:", df.iloc[0].to_dict())
         
         async with SessionLocal() as db:
             # Pre-fetch roles
@@ -202,6 +225,9 @@ async def bulk_import_taxonomy(industry: str = Form("Education"), file: UploadFi
                 s_name = str(row.get('subject_name', '')).strip()
                 f_name = str(row.get('faculty_name', '')).strip()
                 f_email = str(row.get('faculty_email', '')).strip()
+                st_prn = str(row.get('student_prn', '')).strip()
+                if st_prn.endswith('.0'):
+                    st_prn = st_prn[:-2]
                 st_name = str(row.get('student_name', '')).strip()
                 st_email = str(row.get('student_email', '')).strip()
                 
@@ -236,7 +262,7 @@ async def bulk_import_taxonomy(industry: str = Form("Education"), file: UploadFi
                     faculty = fac_res.scalar_one_or_none()
                     if not faculty:
                         pwd = generate_password()
-                        faculty = User(username=f_name or f_email.split('@')[0], email=f_email, password=pwd, role_id=host_role_id, industry=industry)
+                        faculty = User(username=f_name or f_email.split('@')[0], email=f_email, password=pwd, full_name=f_name, role_id=host_role_id, industry=industry)
                         db.add(faculty)
                         await db.flush()
                         created_users.append({"username": faculty.username, "email": faculty.email, "password": pwd, "role": "Host"})
@@ -249,24 +275,26 @@ async def bulk_import_taxonomy(industry: str = Form("Education"), file: UploadFi
                         if not enr_res.scalar_one_or_none():
                             db.add(Enrollment(user_id=faculty.id, workspace_id=workspace.id, project_id=project.id))
                             
-                # 4. Student
+                # 4. Student (Enrolled at Workspace Level)
                 student = None
-                if st_email and st_email != 'nan':
-                    stu_res = await db.execute(select(User).where(User.email == st_email))
+                if st_prn and st_prn != 'nan':
+                    stu_res = await db.execute(select(User).where(User.username == st_prn))
                     student = stu_res.scalar_one_or_none()
                     if not student:
-                        pwd = generate_password()
-                        student = User(username=st_name or st_email.split('@')[0], email=st_email, password=pwd, role_id=user_role_id, industry=industry)
+                        # Password is set to PRN
+                        pwd = st_prn
+                        email_to_use = st_email if st_email and st_email != 'nan' else f"{st_prn}@student.edu"
+                        student = User(username=st_prn, email=email_to_use, password=pwd, full_name=st_name, role_id=user_role_id, industry=industry)
                         db.add(student)
                         await db.flush()
                         created_users.append({"username": student.username, "email": student.email, "password": pwd, "role": "User"})
                         
-                    # Map student to workspace (and project if provided)
+                    # Map student to workspace ONLY (no project_id!)
                     enr_stu = await db.execute(select(Enrollment).where(
-                        (Enrollment.user_id == student.id) & (Enrollment.workspace_id == workspace.id) & (Enrollment.project_id == (project.id if project else None))
+                        (Enrollment.user_id == student.id) & (Enrollment.workspace_id == workspace.id) & (Enrollment.project_id.is_(None))
                     ))
                     if not enr_stu.scalar_one_or_none():
-                        db.add(Enrollment(user_id=student.id, workspace_id=workspace.id, project_id=project.id if project else None))
+                        db.add(Enrollment(user_id=student.id, workspace_id=workspace.id, project_id=None))
                         
             await db.commit()
             return {"message": "Bulk import processed successfully!", "new_users": created_users}
