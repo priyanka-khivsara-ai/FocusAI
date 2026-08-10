@@ -17,6 +17,7 @@ router = APIRouter()
 
 @router.websocket("/ws/user/{user_id}/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str):
+    # How it works: This is the FastAPI WebSocket endpoint. It maintains an open, high-speed connection with the frontend, receiving the JSON coordinates up to 30 times a second.
     await websocket.accept()
     
     # Validate session status
@@ -37,6 +38,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
         spoof_reason = ""
         
         while True:
+            # The Action: It acts as the traffic controller. For every frame of data it receives, it passes the raw coordinates to the mathematical scoring engines.
             data = await websocket.receive_json()
             attention_score = "No Face Detected"
             

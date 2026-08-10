@@ -94,6 +94,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
       ws.onopen = async () => {
         setStatus("Accessing Camera...");
         try {
+          // How it works: This is the starting point. When a user joins a session, this React component uses navigator.mediaDevices.getUserMedia() to turn on their webcam.
           const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
@@ -124,12 +125,16 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
       ) {
         lastVideoTime = videoRef.current.currentTime;
         try {
+          // The Magic: Instead of uploading the video, it feeds the live video frames directly into Google's MediaPipe FaceLandmarker running entirely inside the browser via WebAssembly (WASM).
           const results = faceLandmarker.detectForVideo(videoRef.current, performance.now());
           
           if (ws && ws.readyState === WebSocket.OPEN) {
             if (results.faceLandmarks.length > 0) {
-              // Privacy Feature: Send ONLY numerical feature vectors to backend, NOT video!
-              // We extract the 12 eye landmarks needed for EAR, the 4x4 pose matrix, and the 2 Iris centers.
+              // The Output: It extracts a 3D mesh of 478 facial landmarks. It packages the precise X, Y, Z coordinates for the eyes, mouth, and head rotation into a tiny JSON payload and sends it to the backend via WebSockets. The video is immediately discarded and NEVER leaves the browser.
+            //Index 33 is always the outer corner of the right eye.
+            // Index 133 is always the inner corner of the right eye.
+            // Indices 160 & 158 are on the top eyelid.
+            // Indices 153 & 144 are on the bottom eyelid.
               const rightEyeIndices = [33, 160, 158, 133, 153, 144];
               const leftEyeIndices = [362, 385, 387, 263, 373, 380];
 
