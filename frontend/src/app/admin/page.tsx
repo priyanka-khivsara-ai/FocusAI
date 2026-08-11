@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const [role, setRole] = useState("Admin");
+  const [role, setRole] = useState("");
   const [username, setUsername] = useState("");
   const [activeTab, setActiveTab] = useState("monitoring");
     
@@ -45,6 +45,15 @@ export default function AdminDashboard() {
   const [selectedStudentName, setSelectedStudentName] = useState<string>("");
   const [selectedStudentOverallScore, setSelectedStudentOverallScore] = useState<number>(0);
   const [hostSubjects, setHostSubjects] = useState<any[]>([]);
+  
+  // Attendance State
+  const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
+  const [attendanceList, setAttendanceList] = useState<any[]>([]);
+
+  // UI States
+  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const [isPastSessionsOpen, setIsPastSessionsOpen] = useState(false);
+  const [userProvisioningTab, setUserProvisioningTab] = useState("upload");
 
   useEffect(() => {
     const savedRole = sessionStorage.getItem("focusai_role");
@@ -89,9 +98,9 @@ export default function AdminDashboard() {
     return () => clearInterval(interval);
   }, [role, activeTab, selectedUser, activeSessionId]);
 
-  // Polling for Live Monitoring Table
+  // Polling for Live Monitoring Table & Global Attendance
   useEffect(() => {
-    if (activeTab !== "monitoring" || !activeSessionId) return;
+    if (!activeSessionId) return;
     const fetchLatest = async () => {
       try {
         const res = await fetch(`/api/telemetry/latest?session_id=${activeSessionId}`);
@@ -139,6 +148,7 @@ export default function AdminDashboard() {
 
   // Fetch Taxonomy Tree and Subjects
   useEffect(() => {
+    if (!role) return;
     const fetchTaxonomy = async () => {
       try {
         if (role === "Admin") {
@@ -166,6 +176,9 @@ export default function AdminDashboard() {
             const res = await fetch(`/api/taxonomy/my-subjects?username=${username}`);
             const json = await res.json();
             setMySubjects(json);
+            if (json.length > 0) {
+              setSelectedProject(json[0].id);
+            }
           }
         }
       } catch (e) {
@@ -177,6 +190,7 @@ export default function AdminDashboard() {
 
   // Fetch Past Sessions
   useEffect(() => {
+    if (!role) return;
     const fetchHistory = async () => {
       const username = sessionStorage.getItem("focusai_user_id");
       try {
@@ -189,20 +203,19 @@ export default function AdminDashboard() {
   }, [role, refreshKey]);
 
   useEffect(() => {
-    if (activeTab === "my-subjects") {
-      const fetchHostSubjects = async () => {
-        const username = sessionStorage.getItem("focusai_user_id");
-        if (username) {
-          try {
-            const res = await fetch(`/api/analytics/host/subjects?username=${username}`);
-            const json = await res.json();
-            setHostSubjects(json);
-          } catch(e) {}
-        }
-      };
-      fetchHostSubjects();
-    }
-  }, [activeTab]);
+    if (role !== "Host") return;
+    const fetchHostSubjects = async () => {
+      const username = sessionStorage.getItem("focusai_user_id");
+      if (username) {
+        try {
+          const res = await fetch(`/api/analytics/host/subjects?username=${username}`);
+          const json = await res.json();
+          setHostSubjects(json);
+        } catch(e) {}
+      }
+    };
+    fetchHostSubjects();
+  }, [role, refreshKey]);
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -217,11 +230,38 @@ export default function AdminDashboard() {
     setQuery("");
     setLoading(true);
     
+    const currentSess = pastSessions.find((s: any) => s.session_id === activeSessionId);
+    const subjectName = currentSess?.subject_name || "General Session";
+    
+    let tempEnrolled: any[] = [];
+    if (currentSess && currentSess.project_id) {
+      if (role === "Admin") {
+        for (const ws of directoryTree) {
+          const prj = ws.subjects.find((s: any) => s.id === currentSess.project_id);
+          if (prj) { tempEnrolled = prj.students || []; break; }
+        }
+      } else if (role === "Host") {
+        const prj = hostSubjects.find((p: any) => p.subject_id === currentSess.project_id);
+        if (prj) { tempEnrolled = prj.students || []; }
+      }
+    }
+    const tempPresent = latestData.map((d: any) => d.user_id);
+    const presCount = tempEnrolled.filter(s => tempPresent.includes(s.username)).length;
+    const absCount = tempEnrolled.filter(s => !tempPresent.includes(s.username)).length;
+
     try {
       const res = await fetch(`/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, user_id: selectedUser, session_id: activeSessionId })
+        body: JSON.stringify({ 
+          message: userMessage, 
+          user_id: selectedUser, 
+          session_id: activeSessionId,
+          role: role,
+          subject_name: subjectName,
+          present_count: presCount,
+          absent_count: absCount
+        })
       });
       const json = await res.json();
       setChatLog(prev => [...prev, { role: "agent", content: json.response }]);
@@ -316,8 +356,8 @@ export default function AdminDashboard() {
 
   const handleCreateMeeting = async () => {
     const selSubj = (document.getElementById('subject_select') as HTMLSelectElement)?.value;
-    if (!selSubj) {
-      alert("Please select a " + ('Subject'));
+    if (!selSubj || selSubj === "0") {
+      alert("Please select a Subject first.");
       return;
     }
     try {
@@ -354,6 +394,30 @@ export default function AdminDashboard() {
       console.error(e);
       alert("Error ending meeting");
     }
+  };
+
+  // --- Attendance Calculation ---
+  let enrolledStudents: any[] = [];
+  const currentSession = pastSessions.find((s: any) => s.session_id === activeSessionId);
+  if (currentSession && currentSession.project_id) {
+    if (role === "Admin") {
+      for (const ws of directoryTree) {
+        const prj = ws.subjects.find((s: any) => s.id === currentSession.project_id);
+        if (prj) { enrolledStudents = ws.students || []; break; }
+      }
+    } else if (role === "Host") {
+      const prj = hostSubjects.find((p: any) => p.subject_id === currentSession.project_id);
+      if (prj) { enrolledStudents = prj.students || []; }
+    }
+  }
+  
+  const presentUsernames = latestData.map((d: any) => d.user_id);
+  const presentList = enrolledStudents.filter(s => presentUsernames.includes(s.username));
+  const absentList = enrolledStudents.filter(s => !presentUsernames.includes(s.username));
+  
+  const handleShowAttendance = () => {
+    setAttendanceList([...presentList.map(s => ({...s, present: true})), ...absentList.map(s => ({...s, present: false}))]);
+    setIsAttendanceModalOpen(true);
   };
 
   // --- ECharts Options ---
@@ -394,8 +458,8 @@ export default function AdminDashboard() {
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-10">
-        <div className="p-6 border-b border-slate-800">
+      <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-10 overflow-y-auto overflow-x-hidden">
+        <div className="p-6 border-b border-slate-800 shrink-0">
           <h1 className="text-2xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
             FocusAI
           </h1>
@@ -411,7 +475,7 @@ export default function AdminDashboard() {
               <p className="text-xs text-red-400">You are not assigned to any subjects.</p>
             ) : (
               <select id="subject_select" value={selectedProject} onChange={(e) => setSelectedProject(parseInt(e.target.value))} className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm">
-                <option value={0}>-- All Classes (System View) --</option>
+                {role === "Admin" && <option value={0}>-- All Classes (System View) --</option>}
                 {mySubjects.map(sub => (
                   <option key={sub.id} value={sub.id}>{sub.workspace_name} - {sub.name}</option>
                 ))}
@@ -425,7 +489,8 @@ export default function AdminDashboard() {
               placeholder="e.g. AI-101"
               value={activeSessionId}
               onChange={(e) => setActiveSessionId(e.target.value.toUpperCase())}
-              className="w-full bg-slate-800 border border-slate-700 text-white font-bold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase text-sm"
+              className="w-full bg-slate-800 border border-slate-700 text-white font-bold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase text-sm disabled:opacity-50"
+              disabled={role !== "Admin"}
             />
           </div>
           <button 
@@ -445,13 +510,23 @@ export default function AdminDashboard() {
           )}
           
           <div className="mt-4 pt-4 border-t border-slate-800">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Past Sessions</label>
-            <div className="space-y-1 max-h-40 overflow-y-auto">
+            <button 
+              onClick={() => setIsPastSessionsOpen(!isPastSessionsOpen)} 
+              className="w-full flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 hover:text-slate-300 transition-colors"
+            >
+              <span>Past Sessions</span>
+              <span className="text-[10px]">{isPastSessionsOpen ? "▼" : "▶"}</span>
+            </button>
+            {isPastSessionsOpen && (
+              <div className="space-y-1">
               {pastSessions.length === 0 && <p className="text-xs text-slate-500">No past sessions.</p>}
               {pastSessions.map((s: any) => (
                 <button
                   key={s.session_id}
-                  onClick={() => { setActiveSessionId(s.session_id); setActiveTab("monitoring"); }}
+                  onClick={() => { 
+                    setActiveSessionId(s.session_id); 
+                    if (s.project_id) setSelectedProject(s.project_id);
+                  }}
                   className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors flex justify-between items-start ${
                     activeSessionId === s.session_id ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
                   }`}
@@ -470,10 +545,11 @@ export default function AdminDashboard() {
                 </button>
               ))}
             </div>
+            )}
           </div>
         </div>
         
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        <nav className="flex-1 p-4 space-y-2 shrink-0">
           {role === "Admin" && (
             <>
               <button onClick={() => setActiveTab("analytics")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
@@ -517,13 +593,6 @@ export default function AdminDashboard() {
             </>
           )}
         </nav>
-        
-        <div className="p-4 border-t border-slate-800">
-          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-400 hover:bg-rose-500/10 transition-all">
-            <LogOut size={18} />
-            <span className="font-semibold text-sm">Sign Out</span>
-          </button>
-        </div>
       </aside>
 
       {/* Main Content Area */}
@@ -552,7 +621,8 @@ export default function AdminDashboard() {
                  <select 
                    value={selectedUser}
                    onChange={(e) => setSelectedUser(e.target.value)}
-                   className="bg-white border-2 border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm outline-none transition-colors"
+                   className="appearance-none bg-white border-2 border-slate-200 text-slate-700 font-bold py-2.5 px-4 pr-10 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm outline-none transition-colors bg-no-repeat bg-[right_10px_center] bg-[length:16px_16px]"
+                   style={{ backgroundImage: `url('data:image/svg+xml;utf8,<svg fill="none" stroke="%2364748b" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path></svg>')` }}
                  >
                    <option value="all">{selectedProject ? "Class Average" : "System Average"}</option>
                    {(() => {
@@ -577,17 +647,64 @@ export default function AdminDashboard() {
                    })()}
                  </select>
               )}
-              <div className="flex items-center gap-3 ml-4 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
-                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-black text-sm uppercase">
-                  {username ? username.charAt(0) : "U"}
-                </div>
-                <div className="flex flex-col">
-                  <span className="font-bold text-slate-700 text-sm leading-none">{username || "User"}</span>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">{role}</span>
-                </div>
+              <div className="relative ml-4">
+                <button 
+                  onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
+                  className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-black text-sm uppercase shrink-0">
+                    {username ? username.charAt(0) : "U"}
+                  </div>
+                  <div className="flex flex-col text-left">
+                    <span className="font-bold text-slate-700 text-sm leading-none">{username || "User"}</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">{role}</span>
+                  </div>
+                </button>
+                {isProfileDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 py-1 z-50">
+                    <button 
+                      onClick={handleLogout}
+                      className="w-full text-left px-4 py-3 text-sm font-bold text-rose-500 hover:bg-rose-50 transition-colors flex items-center gap-2"
+                    >
+                      <LogOut size={16} />
+                      Sign Out
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </header>
+
+          {/* Global Active Session Info */}
+          {activeSessionId && ["analytics", "historical", "monitoring"].includes(activeTab) && (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="font-black text-slate-800 text-xl">
+                    Meeting Code: {activeSessionId}
+                  </h3>
+                  <p className="text-slate-500 font-medium mt-1">
+                    {currentSession?.subject_name || pastSessions.find((s: any) => s.session_id === activeSessionId)?.subject_name || "General Session"}
+                  </p>
+                </div>
+                <div className="flex gap-4 items-center">
+                  {enrolledStudents.length > 0 && (
+                    <button onClick={handleShowAttendance} className="text-left bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer group shadow-sm">
+                       <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-0.5 group-hover:text-blue-500 transition-colors">Class Attendance</div>
+                       <div className="flex gap-3 text-sm font-bold">
+                         <span className="text-emerald-600">Present: {presentList.length}</span>
+                         <span className="text-slate-300">|</span>
+                         <span className="text-rose-600">Absent: {absentList.length}</span>
+                       </div>
+                    </button>
+                  )}
+                  {activeTab === "monitoring" && (
+                    <div className="px-4 py-2 bg-emerald-50 text-emerald-600 font-bold rounded-xl text-sm border border-emerald-100 animate-pulse h-fit">
+                      LIVE TELEMETRY
+                    </div>
+                  )}
+                </div>
+              </div>
+          )}
 
           {/* Tab Contents */}
           {activeTab === "analytics" && (
@@ -617,7 +734,7 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
-                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Primary Distractor</h3>
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Dominant Behavior</h3>
                    <div className="text-2xl font-black text-amber-600">
                      {Object.keys(moodCounts).length > 0 ? Object.keys(moodCounts).reduce((a, b) => moodCounts[a] > moodCounts[b] ? a : b) : "--"}
                    </div>
@@ -695,7 +812,7 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
-                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Primary Distractor</h3>
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Dominant Behavior</h3>
                    <div className="text-2xl font-black text-amber-600">
                      {historicalData ? historicalData.primary_emotion : "--"}
                    </div>
@@ -739,23 +856,6 @@ export default function AdminDashboard() {
 
           {activeTab === "monitoring" && (
             <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex justify-between items-center">
-                <div>
-                  <h3 className="font-black text-slate-800 text-xl">
-                    {activeSessionId ? `Meeting Code: ${activeSessionId}` : "No Active Meeting Selected"}
-                  </h3>
-                  {activeSessionId && (
-                    <p className="text-slate-500 font-medium mt-1">
-                      {pastSessions.find((s: any) => s.session_id === activeSessionId)?.subject_name || "General Session"}
-                    </p>
-                  )}
-                </div>
-                {activeSessionId && (
-                  <div className="px-4 py-2 bg-emerald-50 text-emerald-600 font-bold rounded-xl text-sm border border-emerald-100 animate-pulse">
-                    LIVE TELEMETRY
-                  </div>
-                )}
-              </div>
               <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
@@ -766,7 +866,6 @@ export default function AdminDashboard() {
                       <th className="p-4 font-bold">Focus</th>
                       <th className="p-4 font-bold">Mood</th>
                       <th className="p-4 font-bold">Tense</th>
-                      <th className="p-4 font-bold">Eyebrows</th>
                       <th className="p-4 font-bold">Yawning</th>
                       <th className="p-4 font-bold">Speaking/Lips</th>
                     </tr>
@@ -794,9 +893,7 @@ export default function AdminDashboard() {
                         <td className="p-4">
                           {row.is_tense ? <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
                         </td>
-                        <td className="p-4 text-slate-600 font-medium">
-                          {row.eyebrows}
-                        </td>
+
                         <td className="p-4">
                           {row.yawning ? <span className="bg-rose-100 text-rose-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
                         </td>
@@ -886,29 +983,48 @@ export default function AdminDashboard() {
           {activeTab === "users" && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
               
-              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
-                <div className="max-w-2xl mx-auto">
-                  <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                      <Upload className="text-blue-600" size={32} />
+              <div className="flex border-b border-slate-200">
+                <button 
+                  onClick={() => setUserProvisioningTab('upload')} 
+                  className={`py-3 px-6 font-bold text-sm border-b-2 transition-colors ${userProvisioningTab === 'upload' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                >
+                  Bulk Provisioning
+                </button>
+                <button 
+                  onClick={() => setUserProvisioningTab('manage')} 
+                  className={`py-3 px-6 font-bold text-sm border-b-2 transition-colors ${userProvisioningTab === 'manage' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                >
+                  Manage Users
+                </button>
+              </div>
+
+              {userProvisioningTab === 'upload' && (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                  <div className="max-w-2xl mx-auto">
+                    <div className="text-center mb-8">
+                      <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <Upload className="text-blue-600" size={32} />
+                      </div>
+                      <h3 className="text-2xl font-black text-slate-800">Bulk Provisioning</h3>
+                      <p className="text-slate-500 mt-2">Upload an Excel (.xlsx), CSV, or PDF file to automatically extract names and emails and generate secure credentials.</p>
                     </div>
-                    <h3 className="text-2xl font-black text-slate-800">Bulk Provisioning</h3>
-                    <p className="text-slate-500 mt-2">Upload an Excel (.xlsx), CSV, or PDF file to automatically extract names and emails and generate secure credentials.</p>
-                  </div>
                   
+                  <div className="flex gap-4 mb-6 p-1 bg-slate-100 rounded-xl">
+                    <button 
+                      className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${uploadRole === 'User' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      onClick={() => setUploadRole("User")}
+                    >
+                      Provision Students
+                    </button>
+                    <button 
+                      className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${uploadRole === 'Host' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      onClick={() => setUploadRole("Host")}
+                    >
+                      Provision Hosts
+                    </button>
+                  </div>
+
                   <form onSubmit={handleBulkUpload} className="space-y-6">
-                    <div className="grid grid-cols-2 gap-4">
-                      <label className={`border-2 rounded-2xl p-4 cursor-pointer transition-all ${uploadRole === 'User' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                        <input type="radio" name="role" value="User" checked={uploadRole === 'User'} onChange={() => setUploadRole("User")} className="hidden" />
-                        <div className="font-bold text-slate-800">User Role</div>
-                        <div className="text-xs text-slate-500 mt-1">Standard tracking participant</div>
-                      </label>
-                      <label className={`border-2 rounded-2xl p-4 cursor-pointer transition-all ${uploadRole === 'Host' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                        <input type="radio" name="role" value="Host" checked={uploadRole === 'Host'} onChange={() => setUploadRole("Host")} className="hidden" />
-                        <div className="font-bold text-slate-800">Host Role</div>
-                        <div className="text-xs text-slate-500 mt-1">Access to live monitoring</div>
-                      </label>
-                    </div>
 
                     <div className="border-2 border-dashed border-slate-300 rounded-3xl p-10 text-center hover:bg-slate-50 transition-colors relative">
                       <input 
@@ -934,9 +1050,8 @@ export default function AdminDashboard() {
                   </form>
                 </div>
               </div>
-
-              {/* Results Table */}
-              {uploadResult && uploadResult.users && (
+              )}
+              {userProvisioningTab === 'upload' && uploadResult && uploadResult.users && (
                 <div className="bg-emerald-50 rounded-3xl border border-emerald-200 p-8 animate-in fade-in slide-in-from-top-4">
                   <div className="flex items-center gap-3 mb-6">
                     <CheckCircle className="text-emerald-600" size={28} />
@@ -972,7 +1087,8 @@ export default function AdminDashboard() {
               )}
 
               {/* Registered Users Table */}
-              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 mt-8">
+              {userProvisioningTab === 'manage' && (
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl font-black text-slate-800">All Registered Users</h3>
                   <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold text-sm">{registeredUsers.length} Users</span>
@@ -1032,6 +1148,7 @@ export default function AdminDashboard() {
                   </table>
                 </div>
               </div>
+              )}
 
             </div>
           )}
@@ -1380,7 +1497,7 @@ export default function AdminDashboard() {
       </main>
 
       {/* Floating AI Agent Button */}
-      {role === "Admin" && (
+      {(role === "Admin" || role === "Host") && (
         <button 
           onClick={() => setIsAgentOpen(!isAgentOpen)}
           className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 rounded-full shadow-2xl shadow-blue-500/50 flex items-center justify-center text-white hover:bg-blue-700 transition-all z-50 group"
@@ -1390,7 +1507,7 @@ export default function AdminDashboard() {
       )}
 
       {/* Floating AI Agent Window */}
-      {isAgentOpen && role === "Admin" && (
+      {isAgentOpen && (role === "Admin" || role === "Host") && (
         <div className="fixed bottom-24 right-6 w-96 h-[500px] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col z-50 overflow-hidden animate-in slide-in-from-bottom-10 fade-in duration-300">
           <div className="bg-slate-900 p-4 flex justify-between items-center text-white">
             <div className="flex items-center gap-2">
@@ -1438,6 +1555,33 @@ export default function AdminDashboard() {
           </form>
         </div>
       )}
+
+      {/* Attendance Modal */}
+      {isAttendanceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md flex flex-col max-h-[80vh]">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-lg font-black text-slate-800">Attendance Roster</h3>
+              <button onClick={() => setIsAttendanceModalOpen(false)} className="text-slate-400 hover:text-rose-500 transition-colors"><X size={20}/></button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-3">
+               {attendanceList.map((s: any, idx: number) => (
+                 <div key={idx} className="flex justify-between items-center p-3 rounded-xl border border-slate-100 bg-slate-50">
+                    <div>
+                      <p className="font-bold text-slate-800 text-sm">{s.full_name || s.username}</p>
+                      <p className="text-xs text-slate-400">{s.username}</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${s.present ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                      {s.present ? 'Present' : 'Absent'}
+                    </span>
+                 </div>
+               ))}
+               {attendanceList.length === 0 && <p className="text-center text-slate-500 text-sm">No students enrolled in this subject.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

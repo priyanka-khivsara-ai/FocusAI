@@ -58,9 +58,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
 
     const setupAI = async () => {
       setStatus("Downloading AI Model to Edge...");
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
-      );
+      const vision = await FilesetResolver.forVisionTasks("/wasm");
       
       // Next.js intercepts console.error and blocks the screen.
       // MediaPipe logs its success message (XNNPACK) to console.error by mistake.
@@ -73,7 +71,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
       
       faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
         baseOptions: {
-          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+          modelAssetPath: "/models/face_landmarker.task",
           delegate: "GPU"
         },
         outputFaceBlendshapes: true,
@@ -115,7 +113,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
     };
 
     let lastVideoTime = -1;
-    
+    //  starts running at roughly 30 frames per second Once the webcam is active, a continuous loop
     const predictLoop = () => {
       if (
         videoRef.current && 
@@ -147,6 +145,9 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
               const mouthIndices = [61, 291, 0, 17, 13, 14];
               
               const rawLandmarks = results.faceLandmarks[0];
+              // instead of sending video, the frontend packages these specific coordinates into a tiny JSON payload 
+              // It instantly fires this lightweight JSON payload across a high-speed WebSocket connection to the Python backend API  (which is listening in backend/websocket/stream.py).
+              //  30 times a second
               const payload = {
                 right_eye: rightEyeIndices.map(i => rawLandmarks[i]),
                 left_eye: leftEyeIndices.map(i => rawLandmarks[i]),

@@ -124,7 +124,7 @@ async def get_sessions_history(
 ):
     try:
         if role == "Admin":
-            query = select(Session.id, Session.start_time, Session.status, Project.name.label("subject_name")).outerjoin(Project, Session.project_id == Project.id).order_by(Session.start_time.desc()).limit(50)
+            query = select(Session.id, Session.start_time, Session.status, Project.name.label("subject_name"), Session.project_id).outerjoin(Project, Session.project_id == Project.id).order_by(Session.start_time.desc()).limit(50)
             result = await db.execute(query)
             sessions = result.fetchall()
         else:
@@ -142,11 +142,11 @@ async def get_sessions_history(
             if not project_ids:
                 return []
                 
-            query = select(Session.id, Session.start_time, Session.status, Project.name.label("subject_name")).outerjoin(Project, Session.project_id == Project.id).where(Session.project_id.in_(project_ids)).order_by(Session.start_time.desc()).limit(50)
+            query = select(Session.id, Session.start_time, Session.status, Project.name.label("subject_name"), Session.project_id).outerjoin(Project, Session.project_id == Project.id).where(Session.project_id.in_(project_ids)).order_by(Session.start_time.desc()).limit(50)
             result = await db.execute(query)
             sessions = result.fetchall()
             
-        return [{"session_id": s.id, "start_time": s.start_time, "status": s.status, "subject_name": s.subject_name or "General Session"} for s in sessions]
+        return [{"session_id": s.id, "start_time": s.start_time, "status": s.status, "subject_name": s.subject_name or "General Session", "project_id": s.project_id} for s in sessions]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

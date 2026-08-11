@@ -37,7 +37,7 @@ def format_records(records):
             "mood": r.mood or "Neutral",
             "user_id": r.user_id,
             "full_name": getattr(r, 'full_name', r.user_id) or r.user_id,
-            "eyebrows": eyebrows,
+            "smile_type": r.smile_type if hasattr(r, 'smile_type') and r.smile_type else "None",
             "yawning": bool(r.yawning) if hasattr(r, 'yawning') else False,
             "lip_movement": bool(r.lip_movement) if hasattr(r, 'lip_movement') else False
         })
@@ -149,12 +149,23 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str
     user_id: Optional[str] = None
+    role: Optional[str] = "Admin"
+    subject_name: Optional[str] = None
+    present_count: Optional[int] = None
+    absent_count: Optional[int] = None
 
 @router.post("/chat")
 async def chat_endpoint(req: ChatRequest):
     try:
         agent = get_agent(req.session_id)
-        context = f"[Context: Analyzing data for {'all users (Admin)' if not req.user_id or req.user_id == 'all' else f'user {req.user_id}'} in meeting room '{req.session_id}']. "
+        
+        attendance_ctx = f" Currently, there are {req.present_count} students present and {req.absent_count} students absent in this class." if req.present_count is not None else ""
+
+        if req.role == "Host":
+            context = f"[Context: You are assisting a Host (faculty). You ONLY have access to data for the subject '{req.subject_name}' in meeting room '{req.session_id}'.{attendance_ctx} If the user asks about ANY other subject, course, or meeting, you MUST explicitly tell them you do not have access to it.]\n\nUser Query: "
+        else:
+            context = f"[Context: You are assisting an Admin. You are analyzing data for {'all users' if not req.user_id or req.user_id == 'all' else f'user {req.user_id}'} in meeting room '{req.session_id}'.{attendance_ctx}]\n\nUser Query: "
+            
         messages = [HumanMessage(content=context + req.message)]
         
         result = await agent.ainvoke({"messages": messages})
@@ -229,13 +240,14 @@ async def get_user_timeline(session_id: str, user_id: str):
                         avg_score = sum(current_block_scores) / len(current_block_scores)
                         most_frequent_mood = max(set(current_block_moods), key=current_block_moods.count) if current_block_moods else "Neutral"
                         
-                        if 0 in current_block_scores:
-                            status = "Spoofing Detected"
-                            avg_score = 0
-                        elif avg_score < 60:
+                        if avg_score < 60:
                             status = "Distracted"
                         else:
                             status = most_frequent_mood
+                            
+                        # Override historical false positive spoofing records
+                        if status == "Spoofing Detected":
+                            status = "Distracted"
                         
                         timeline.append({
                             "time": block_start.isoformat(),
@@ -257,13 +269,14 @@ async def get_user_timeline(session_id: str, user_id: str):
                 avg_score = sum(current_block_scores) / len(current_block_scores)
                 most_frequent_mood = max(set(current_block_moods), key=current_block_moods.count) if current_block_moods else "Neutral"
                 
-                if 0 in current_block_scores:
-                    status = "Spoofing Detected"
-                    avg_score = 0
-                elif avg_score < 60:
+                if avg_score < 60:
                     status = "Distracted"
                 else:
                     status = most_frequent_mood
+                    
+                # Override historical false positive spoofing records
+                if status == "Spoofing Detected":
+                    status = "Distracted"
                 
                 timeline.append({
                     "time": block_start.isoformat(),
