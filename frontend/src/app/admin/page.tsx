@@ -460,9 +460,9 @@ export default function AdminDashboard() {
       {/* Sidebar */}
       <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-10 overflow-y-auto overflow-x-hidden">
         <div className="p-6 border-b border-slate-800 shrink-0">
-          <h1 className="text-2xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
-            FocusAI
-          </h1>
+          <div className="flex justify-center w-full">
+            <img src="/logo.jpg" alt="FocusAI Logo" className="w-full max-w-[180px] h-auto object-contain mix-blend-screen" />
+          </div>
           <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest">{role} Portal</p>
         </div>
 
@@ -552,11 +552,11 @@ export default function AdminDashboard() {
         <nav className="flex-1 p-4 space-y-2 shrink-0">
           {role === "Admin" && (
             <>
-              <button onClick={() => setActiveTab("analytics")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <button onClick={() => setActiveTab("analytics")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'analytics' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <LayoutDashboard size={18} />
                 <span className="font-semibold text-sm">Live Analytics</span>
               </button>
-              <button onClick={() => setActiveTab("historical")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'historical' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <button onClick={() => setActiveTab("historical")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'historical' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <History size={18} />
                 <span className="font-semibold text-sm">Historical Stats</span>
               </button>
@@ -564,13 +564,13 @@ export default function AdminDashboard() {
             </>
           )}
           
-          <button onClick={() => setActiveTab("monitoring")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'monitoring' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+          <button onClick={() => setActiveTab("monitoring")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'monitoring' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
             <Activity size={18} />
             <span className="font-semibold text-sm">Session Roster</span>
           </button>
           
           {role === "Host" && (
-            <button onClick={() => setActiveTab("my-subjects")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'my-subjects' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+            <button onClick={() => setActiveTab("my-subjects")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'my-subjects' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
               <BookOpen size={18} />
               <span className="font-semibold text-sm">My Subjects</span>
             </button>
@@ -578,15 +578,15 @@ export default function AdminDashboard() {
           
           {role === "Admin" && (
             <>
-              <button onClick={() => setActiveTab("directory")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'directory' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <button onClick={() => setActiveTab("directory")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'directory' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <FileText size={18} />
                 <span className="font-semibold text-sm">Directory Viewer</span>
               </button>
-              <button onClick={() => setActiveTab("users")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'users' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <button onClick={() => setActiveTab("users")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'users' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <Users size={18} />
                 <span className="font-semibold text-sm">User Provisioning</span>
               </button>
-              <button onClick={() => setActiveTab("taxonomy")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'taxonomy' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <button onClick={() => setActiveTab("taxonomy")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'taxonomy' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <CheckCircle size={18} />
                 <span className="font-semibold text-sm">Taxonomy & Faculty</span>
               </button>
@@ -677,9 +677,9 @@ export default function AdminDashboard() {
 
           {/* Global Active Session Info */}
           {activeSessionId && ["analytics", "historical", "monitoring"].includes(activeTab) && (
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex justify-between items-center mb-6">
+              <div className="bg-white/80 backdrop-blur-xl p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 flex justify-between items-center mb-6 transition-all duration-300 hover:shadow-2xl hover:shadow-indigo-100">
                 <div>
-                  <h3 className="font-black text-slate-800 text-xl">
+                  <h3 className="font-black text-slate-800 text-2xl tracking-tight">
                     Meeting Code: {activeSessionId}
                   </h3>
                   <p className="text-slate-500 font-medium mt-1">
@@ -688,12 +688,12 @@ export default function AdminDashboard() {
                 </div>
                 <div className="flex gap-4 items-center">
                   {enrolledStudents.length > 0 && (
-                    <button onClick={handleShowAttendance} className="text-left bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer group shadow-sm">
-                       <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-0.5 group-hover:text-blue-500 transition-colors">Class Attendance</div>
-                       <div className="flex gap-3 text-sm font-bold">
-                         <span className="text-emerald-600">Present: {presentList.length}</span>
+                    <button onClick={handleShowAttendance} className="text-left bg-white border border-slate-100 px-5 py-3 rounded-2xl hover:bg-slate-50 hover:scale-[1.02] transition-all duration-300 cursor-pointer group shadow-sm hover:shadow-md">
+                       <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1 group-hover:text-indigo-500 transition-colors">Class Attendance</div>
+                       <div className="flex gap-4 text-sm font-black">
+                         <span className="text-emerald-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> Present: {presentList.length}</span>
                          <span className="text-slate-300">|</span>
-                         <span className="text-rose-600">Absent: {absentList.length}</span>
+                         <span className="text-rose-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500"></span> Absent: {absentList.length}</span>
                        </div>
                     </button>
                   )}
@@ -712,7 +712,7 @@ export default function AdminDashboard() {
               
               {/* Summary Cards */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
                    <div className="text-4xl font-black text-slate-800">
                      {data.length > 0 ? Math.round(data.reduce((acc: any, curr: any) => acc + curr.focus_score, 0) / data.length) + "%" : "--"}
@@ -720,7 +720,7 @@ export default function AdminDashboard() {
                    <p className="text-xs text-slate-400 mt-2 text-center">Average attention of all users</p>
                 </div>
                 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Attention Loss / Deviation</h3>
                    <div className="text-4xl font-black text-rose-600">
                      {data.length > 10 ? 
@@ -733,7 +733,7 @@ export default function AdminDashboard() {
                    <p className="text-xs text-slate-400 mt-2 text-center">Start of session vs End of session</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Dominant Behavior</h3>
                    <div className="text-2xl font-black text-amber-600">
                      {Object.keys(moodCounts).length > 0 ? Object.keys(moodCounts).reduce((a, b) => moodCounts[a] > moodCounts[b] ? a : b) : "--"}
@@ -741,7 +741,7 @@ export default function AdminDashboard() {
                    <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Engagement Time</h3>
                    <div className="text-lg font-black text-slate-700 flex gap-4">
                      <div className="flex flex-col items-center">
@@ -757,7 +757,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+              <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out">
                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
                   Live Focus Trend
@@ -769,7 +769,7 @@ export default function AdminDashboard() {
                 )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                 <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out">
                     <h3 className="font-bold text-slate-800 mb-4">Live Mood Distribution</h3>
                     <ReactECharts option={moodOption} style={{ height: "250px", width: "100%" }} />
                  </div>
@@ -795,7 +795,7 @@ export default function AdminDashboard() {
 
               {/* Summary Cards */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
                    <div className="text-4xl font-black text-slate-800">
                      {historicalData ? `${historicalData.overall_avg_focus}%` : "--"}
@@ -803,7 +803,7 @@ export default function AdminDashboard() {
                    <p className="text-xs text-slate-400 mt-2 text-center">Average attention in selected period</p>
                 </div>
                 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Attention Loss / Deviation</h3>
                    <div className={`text-4xl font-black ${historicalData && historicalData.focus_deviation < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                      {historicalData ? `${historicalData.focus_deviation > 0 ? '+' : ''}${historicalData.focus_deviation}%` : "--"}
@@ -811,7 +811,7 @@ export default function AdminDashboard() {
                    <p className="text-xs text-slate-400 mt-2 text-center">Start of period vs End of period</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Dominant Behavior</h3>
                    <div className="text-2xl font-black text-amber-600">
                      {historicalData ? historicalData.primary_emotion : "--"}
@@ -819,7 +819,7 @@ export default function AdminDashboard() {
                    <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Engagement Time</h3>
                    <div className="text-lg font-black text-slate-700 flex gap-4">
                      <div className="flex flex-col items-center">
@@ -835,7 +835,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+              <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out">
                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
                   Focus Trend
@@ -856,18 +856,18 @@ export default function AdminDashboard() {
 
           {activeTab === "monitoring" && (
             <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 overflow-hidden transition-all duration-300">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100 text-xs uppercase tracking-widest text-slate-500">
-                      <th className="p-4 font-bold pl-6">User ID</th>
-                      <th className="p-4 font-bold">Status</th>
-                      <th className="p-4 font-bold">Focus</th>
-                      <th className="p-4 font-bold">Mood</th>
-                      <th className="p-4 font-bold">Tense</th>
-                      <th className="p-4 font-bold">Yawning</th>
-                      <th className="p-4 font-bold">Speaking/Lips</th>
+                    <tr className="bg-slate-50/80 backdrop-blur-sm border-b border-slate-200/50 text-[11px] font-black uppercase tracking-widest text-slate-400">
+                      <th className="p-5 pl-6">User ID</th>
+                      <th className="p-5">Status</th>
+                      <th className="p-5">Focus</th>
+                      <th className="p-5">Mood</th>
+                      <th className="p-5">Tense</th>
+                      <th className="p-5">Yawning</th>
+                      <th className="p-5">Speaking/Lips</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -875,12 +875,12 @@ export default function AdminDashboard() {
                        <tr><td colSpan={8} className="p-12 text-center text-slate-400 bg-slate-50/50">No active streams.</td></tr>
                     )}
                     {latestData.length > 0 && latestData.map((row: any, i) => (
-                      <tr key={i} onClick={() => handleStudentClick(row.user_id)} className="hover:bg-slate-50 transition-colors group cursor-pointer">
-                        <td className="p-4 pl-6 flex items-center gap-3 text-slate-700">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping shrink-0"></span>
+                      <tr key={i} onClick={() => handleStudentClick(row.user_id)} className="hover:bg-indigo-50/50 transition-colors group cursor-pointer border-b border-slate-100 last:border-0 hover:shadow-sm relative z-10 hover:z-20">
+                        <td className="p-5 pl-6 flex items-center gap-3 text-slate-700">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 group-hover:animate-ping shrink-0 shadow-[0_0_10px_rgba(16,185,129,0.5)]"></span>
                           <div className="flex flex-col">
-                            <span className="font-bold text-sm leading-none">{row.full_name || row.user_id}</span>
-                            <span className="font-medium text-[10px] text-slate-400 uppercase tracking-widest mt-1">{row.user_id}</span>
+                            <span className="font-bold text-sm leading-none group-hover:text-indigo-600 transition-colors">{row.full_name || row.user_id}</span>
+                            <span className="font-black text-[10px] text-slate-400 uppercase tracking-widest mt-1">{row.user_id}</span>
                           </div>
                         </td>
                         <td className="p-4">
@@ -1441,9 +1441,9 @@ export default function AdminDashboard() {
         
         {/* Student History Modal */}
         {selectedStudentHistory !== null && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-200 border border-slate-200">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/80 backdrop-blur-md">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 transition-all duration-300">
+            <div className="bg-white/95 backdrop-blur-3xl rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-300 ease-out border border-slate-100/50">
+              <div className="p-6 border-b border-slate-100/50 flex justify-between items-center bg-slate-50/50">
                 <div>
                   <h3 className="text-xl font-black text-slate-800">{selectedStudentName}</h3>
                   <div className="flex items-center gap-3 mt-1">
@@ -1558,9 +1558,9 @@ export default function AdminDashboard() {
 
       {/* Attendance Modal */}
       {isAttendanceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md flex flex-col max-h-[80vh]">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 transition-all duration-300">
+          <div className="bg-white/95 backdrop-blur-3xl rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] w-full max-w-md flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-300 ease-out border border-slate-100/50">
+            <div className="p-6 border-b border-slate-100/50 flex justify-between items-center bg-slate-50/50">
               <h3 className="text-lg font-black text-slate-800">Attendance Roster</h3>
               <button onClick={() => setIsAttendanceModalOpen(false)} className="text-slate-400 hover:text-rose-500 transition-colors"><X size={20}/></button>
             </div>
