@@ -22,7 +22,9 @@ def format_records(records):
         elif lower_val > 0.5:
             eyebrows = "Lowered"
 
-        if r.mood == "Absent" or r.focus_score == 0:
+        if r.mood == "Spoofing Detected":
+            status = "Spoofing Detected"
+        elif r.mood == "Absent" or r.focus_score == 0:
             status = "User Not Found"
         else:
             status = "Attentive" if r.focus_score > 60 else "Distracted"
@@ -34,7 +36,8 @@ def format_records(records):
             "is_tense": bool(r.is_tense) if hasattr(r, 'is_tense') else False,
             "mood": r.mood or "Neutral",
             "user_id": r.user_id,
-            "eyebrows": eyebrows,
+            "full_name": getattr(r, 'full_name', r.user_id) or r.user_id,
+            "smile_type": r.smile_type if hasattr(r, 'smile_type') and r.smile_type else "None",
             "yawning": bool(r.yawning) if hasattr(r, 'yawning') else False,
             "lip_movement": bool(r.lip_movement) if hasattr(r, 'lip_movement') else False
         })
@@ -123,7 +126,7 @@ async def get_latest_telemetry(session_id: str):
         async with SessionLocal() as db:
             query = text("""
                 SELECT DISTINCT ON (a.user_id) 
-                       a.timestamp, a.attention_score as focus_score, a.user_id,
+                       a.timestamp, a.attention_score as focus_score, a.user_id, u.full_name,
                        e.emotion as mood, f.smile_type,
                        f.is_tense, f.yawning, f.lip_movement,
                        f.eyebrow_raise, f.eyebrow_lower
@@ -146,12 +149,23 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str
     user_id: Optional[str] = None
+    role: Optional[str] = "Admin"
+    subject_name: Optional[str] = None
+    present_count: Optional[int] = None
+    absent_count: Optional[int] = None
 
 @router.post("/chat")
 async def chat_endpoint(req: ChatRequest):
     try:
         agent = get_agent(req.session_id)
-        context = f"[Context: Analyzing data for {'all users (Admin)' if not req.user_id or req.user_id == 'all' else f'user {req.user_id}'} in meeting room '{req.session_id}']. "
+        
+        attendance_ctx = f" Currently, there are {req.present_count} students present and {req.absent_count} students absent in this class." if req.present_count is not None else ""
+
+        if req.role == "Host":
+            context = f"[Context: You are assisting a Host (faculty). You ONLY have access to data for the subject '{req.subject_name}' in meeting room '{req.session_id}'.{attendance_ctx} If the user asks about ANY other subject, course, or meeting, you MUST explicitly tell them you do not have access to it.]\n\nUser Query: "
+        else:
+            context = f"[Context: You are assisting an Admin. You are analyzing data for {'all users' if not req.user_id or req.user_id == 'all' else f'user {req.user_id}'} in meeting room '{req.session_id}'.{attendance_ctx}]\n\nUser Query: "
+            
         messages = [HumanMessage(content=context + req.message)]
         
         result = await agent.ainvoke({"messages": messages})
@@ -226,7 +240,94 @@ async def get_user_timeline(session_id: str, user_id: str):
                         avg_score = sum(current_block_scores) / len(current_block_scores)
                         most_frequent_mood = max(set(current_block_moods), key=current_block_moods.count) if current_block_moods else "Neutral"
                         
-                        if 0 in current_block_scores:
+                        if avg_score < 60:
+                            status = "Distracted"
+                        else:
+                            status = most_frequent_mood
+                            
+                        # Override historical false positive spoofing records
+                        if status == "Spoofing Detected":
+                            status = "Distracted"
+                        
+                        timeline.append({
+                            "time": block_start.isoformat(),
+                            "end_time": r.timestamp.isoformat(),
+                            "status": status,
+                            "mood": most_frequent_mood,
+                            "focus_score": round(avg_score)
+                        })
+                    
+                    block_start = r.timestamp
+                    current_block_scores = []
+                    current_block_moods = []
+                
+                current_block_scores.append(r.focus_score)
+                current_block_moods.append(r.mood or "Neutral")
+                
+            # Add the final block
+            if current_block_scores:
+                avg_score = sum(current_block_scores) / len(current_block_scores)
+                most_frequent_mood = max(set(current_block_moods), key=current_block_moods.count) if current_block_moods else "Neutral"
+                
+                if avg_score < 60:
+                    status = "Distracted"
+                else:
+                    status = most_frequent_mood
+                    
+                # Override historical false positive spoofing records
+                if status == "Spoofing Detected":
+                    status = "Distracted"
+                
+                timeline.append({
+                    "time": block_start.isoformat(),
+                    "end_time": records[-1].timestamp.isoformat(),
+                    "status": status,
+                    "mood": most_frequent_mood,
+                    "focus_score": round(avg_score)
+                })
+                
+            overall_score = round(sum(all_scores) / len(all_scores)) if all_scores else 0
+            
+            return {"timeline": timeline, "overall_score": overall_score}
+    except Exception as e:
+        print(f"Error fetching user timeline: {e}")
+        return {"timeline": [], "overall_score": 0}
+
+@router.get("/user_subject_timeline")
+async def get_user_subject_timeline(project_id: int, user_id: str):
+    try:
+        async with SessionLocal() as db:
+            query = text("""
+                SELECT a.timestamp, a.attention_score as focus_score, e.emotion as mood, a.session_id
+                FROM attention_timeline a
+                LEFT JOIN emotion_timeline e ON a.timestamp = e.timestamp AND a.session_id = e.session_id AND a.user_id = e.user_id
+                JOIN sessions s ON s.id = a.session_id
+                WHERE s.project_id = :project_id AND a.user_id = :user_id
+                ORDER BY a.timestamp ASC
+            """)
+            result = await db.execute(query, {"project_id": project_id, "user_id": user_id})
+            records = result.fetchall()
+            
+            if not records:
+                return {"timeline": [], "overall_score": 0}
+
+            timeline = []
+            start_time = records[0].timestamp
+            block_start = start_time
+            current_block_scores = []
+            current_block_moods = []
+            all_scores = []
+            
+            for r in records:
+                all_scores.append(r.focus_score)
+                
+                # If 5 minutes have passed
+                if r.timestamp - block_start >= timedelta(minutes=5):
+                    if current_block_scores:
+                        avg_score = sum(current_block_scores) / len(current_block_scores)
+                        most_frequent_mood = max(set(current_block_moods), key=current_block_moods.count) if current_block_moods else "Neutral"
+                        
+                        if "Spoofing" in current_block_moods:
                             status = "Spoofing Detected"
                             avg_score = 0
                         elif avg_score < 60:
@@ -254,7 +355,7 @@ async def get_user_timeline(session_id: str, user_id: str):
                 avg_score = sum(current_block_scores) / len(current_block_scores)
                 most_frequent_mood = max(set(current_block_moods), key=current_block_moods.count) if current_block_moods else "Neutral"
                 
-                if 0 in current_block_scores:
+                if "Spoofing" in current_block_moods:
                     status = "Spoofing Detected"
                     avg_score = 0
                 elif avg_score < 60:
@@ -274,5 +375,5 @@ async def get_user_timeline(session_id: str, user_id: str):
             
             return {"timeline": timeline, "overall_score": overall_score}
     except Exception as e:
-        print(f"Error fetching user timeline: {e}")
+        print(f"Error fetching user subject timeline: {e}")
         return {"timeline": [], "overall_score": 0}

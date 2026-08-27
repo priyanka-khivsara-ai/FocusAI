@@ -20,6 +20,7 @@ class User(Base):
     username = Column(String, unique=True, nullable=False, index=True)
     password = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False, index=True)
+    full_name = Column(String, nullable=True)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
     industry = Column(String, default="Education")
     created_at = Column(DateTime(timezone=True), server_default=func.now())

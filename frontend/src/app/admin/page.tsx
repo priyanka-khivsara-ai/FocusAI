@@ -1,15 +1,15 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import ReactECharts from "echarts-for-react";
-import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle, Trash2, History } from "lucide-react";
+import { LayoutDashboard, Users, Activity, Bot, Upload, LogOut, FileText, CheckCircle, Trash2, History, BookOpen, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const [role, setRole] = useState("Admin");
+  const [role, setRole] = useState("");
+  const [username, setUsername] = useState("");
   const [activeTab, setActiveTab] = useState("monitoring");
-  const [industryMode, setIndustryMode] = useState("Education"); // Education or Corporate
-  
+    
   // Data States
   const [activeSessionId, setActiveSessionId] = useState("");
   const [data, setData] = useState([]);
@@ -31,6 +31,7 @@ export default function AdminDashboard() {
   const [query, setQuery] = useState("");
   const [chatLog, setChatLog] = useState<{role: string, content: string}[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isAgentOpen, setIsAgentOpen] = useState(false);
 
   // Bulk Upload State
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -43,9 +44,22 @@ export default function AdminDashboard() {
   const [selectedStudentHistory, setSelectedStudentHistory] = useState<any[] | null>(null);
   const [selectedStudentName, setSelectedStudentName] = useState<string>("");
   const [selectedStudentOverallScore, setSelectedStudentOverallScore] = useState<number>(0);
+  const [hostSubjects, setHostSubjects] = useState<any[]>([]);
+  
+  // Attendance State
+  const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
+  const [attendanceList, setAttendanceList] = useState<any[]>([]);
+
+  // UI States
+  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const [isPastSessionsOpen, setIsPastSessionsOpen] = useState(false);
+  const [userProvisioningTab, setUserProvisioningTab] = useState("upload");
 
   useEffect(() => {
     const savedRole = sessionStorage.getItem("focusai_role");
+    if (savedRole) setRole(savedRole);
+    const savedUser = sessionStorage.getItem("focusai_user_id");
+    if (savedUser) setUsername(savedUser);
     if (!savedRole) {
       router.push("/");
       return;
@@ -59,25 +73,20 @@ export default function AdminDashboard() {
     }
 
     const savedMode = sessionStorage.getItem("focusai_industry") || "Education";
-    setIndustryMode(savedMode);
-  }, [router]);
+      }, [router]);
 
-  const handleIndustryChange = (mode: string) => {
-    setIndustryMode(mode);
-    sessionStorage.setItem("focusai_industry", mode);
-  };
-
+  
   // Polling for Timeseries Charts (Admin only)
   useEffect(() => {
     if (role !== "Admin" || activeTab !== "analytics") return;
     const fetchData = async () => {
       if (!activeSessionId) return;
       try {
-        const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry?session_id=${activeSessionId}&user_id=${selectedUser}`);
+        const res = await fetch(`/api/telemetry?session_id=${activeSessionId}&user_id=${selectedUser}`);
         const json = await res.json();
         setData(json);
         
-        const sumRes = await fetch(`http://${window.location.hostname}:8000/api/telemetry/summary?session_id=${activeSessionId}&user_id=${selectedUser}`);
+        const sumRes = await fetch(`/api/telemetry/summary?session_id=${activeSessionId}&user_id=${selectedUser}`);
         const sumJson = await sumRes.json();
         setSummaryData(sumJson);
       } catch (e) {
@@ -89,12 +98,12 @@ export default function AdminDashboard() {
     return () => clearInterval(interval);
   }, [role, activeTab, selectedUser, activeSessionId]);
 
-  // Polling for Live Monitoring Table
+  // Polling for Live Monitoring Table & Global Attendance
   useEffect(() => {
-    if (activeTab !== "monitoring" || !activeSessionId) return;
+    if (!activeSessionId) return;
     const fetchLatest = async () => {
       try {
-        const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry/latest?session_id=${activeSessionId}`);
+        const res = await fetch(`/api/telemetry/latest?session_id=${activeSessionId}`);
         const json = await res.json();
         // Sort distracted on top (Ascending focus score)
         const sortedData = json.sort((a: any, b: any) => a.focus_score - b.focus_score);
@@ -104,26 +113,30 @@ export default function AdminDashboard() {
       }
     };
     fetchLatest();
+    const interval = setInterval(fetchLatest, 1000);
+    return () => clearInterval(interval);
+  }, [activeSessionId, activeTab]);
+
+  // Fetch Historical Data
+  useEffect(() => {
+    if (activeTab !== "historical") return;
     const fetchHistorical = async () => {
       const projId = selectedProject || (document.getElementById('subject_select') as HTMLSelectElement)?.value || 0;
       try {
-        const res = await fetch(`http://${window.location.hostname}:8000/api/analytics/historical?project_id=${projId}&time_range=${timeRange}${selectedUser !== 'all' ? `&user_id=${encodeURIComponent(selectedUser)}` : ''}`);
+        const res = await fetch(`/api/analytics/historical?project_id=${projId}&time_range=${timeRange}${selectedUser !== 'all' ? `&user_id=${encodeURIComponent(selectedUser)}` : ''}`);
         const json = await res.json();
         setHistoricalData(json);
       } catch(e) {}
     };
-
     fetchHistorical();
-    const interval = setInterval(fetchLatest, 1000);
-    return () => clearInterval(interval);
-  }, [activeSessionId, timeRange, selectedUser, activeTab, selectedProject]);
+  }, [timeRange, selectedUser, activeTab, selectedProject]);
 
   // Fetch Registered Users
   useEffect(() => {
     if (activeTab !== "users") return;
     const fetchUsers = async () => {
       try {
-        const res = await fetch(`http://${window.location.hostname}:8000/api/users/list?industry=${industryMode}`);
+        const res = await fetch(`/api/users/list?industry=Education`);
         const json = await res.json();
         setRegisteredUsers(json.users || []);
       } catch (e) {
@@ -131,50 +144,77 @@ export default function AdminDashboard() {
       }
     };
     fetchUsers();
-  }, [activeTab, industryMode, refreshKey]);
+  }, [activeTab, refreshKey]);
 
   // Fetch Taxonomy Tree and Subjects
   useEffect(() => {
+    if (!role) return;
     const fetchTaxonomy = async () => {
       try {
-        // Fetch full tree for Admin
-        if (role === "Admin" && activeTab === "taxonomy") {
-          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/tree?industry=${industryMode}`);
+        if (role === "Admin") {
+          const res = await fetch(`/api/taxonomy/tree?industry=Education`);
           const json = await res.json();
           setTaxonomyTree(json);
-        }
-        
-        if (role === "Admin" && activeTab === "directory") {
-          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/directory?industry=${industryMode}`);
-          const json = await res.json();
-          setDirectoryTree(json);
-        }
-        
-        // Fetch allowed subjects for meeting creation
-        const username = sessionStorage.getItem("focusai_user_id"); // This is actually username
-        if (username) {
-          const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/my-subjects?username=${username}`);
-          const json = await res.json();
-          setMySubjects(json);
+          
+          const dirRes = await fetch(`/api/taxonomy/directory?industry=Education`);
+          const dirJson = await dirRes.json();
+          setDirectoryTree(dirJson);
+          
+          // For Admin, populate the sidebar "Select Subject" with all subjects in the system
+          const allSubjects = dirJson.flatMap((ws: any) => 
+            ws.subjects.map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              workspace_name: ws.name
+            }))
+          );
+          setMySubjects(allSubjects);
+        } else {
+          // Fetch allowed subjects for Host
+          const username = sessionStorage.getItem("focusai_user_id");
+          if (username) {
+            const res = await fetch(`/api/taxonomy/my-subjects?username=${username}`);
+            const json = await res.json();
+            setMySubjects(json);
+            if (json.length > 0) {
+              setSelectedProject(json[0].id);
+            }
+          }
         }
       } catch (e) {
         console.error("Failed to fetch taxonomy:", e);
       }
     };
     fetchTaxonomy();
-  }, [activeTab, role, refreshKey, industryMode]);
+  }, [activeTab, role, refreshKey]);
 
   // Fetch Past Sessions
   useEffect(() => {
+    if (!role) return;
     const fetchHistory = async () => {
       const username = sessionStorage.getItem("focusai_user_id");
       try {
-        const res = await fetch(`http://${window.location.hostname}:8000/api/sessions/history?role=${role}&username=${username}`);
+        const res = await fetch(`/api/sessions/history?role=${role}&username=${username}`);
         const json = await res.json();
         setPastSessions(json);
       } catch (e) {}
     };
     fetchHistory();
+  }, [role, refreshKey]);
+
+  useEffect(() => {
+    if (role !== "Host") return;
+    const fetchHostSubjects = async () => {
+      const username = sessionStorage.getItem("focusai_user_id");
+      if (username) {
+        try {
+          const res = await fetch(`/api/analytics/host/subjects?username=${username}`);
+          const json = await res.json();
+          setHostSubjects(json);
+        } catch(e) {}
+      }
+    };
+    fetchHostSubjects();
   }, [role, refreshKey]);
 
   const handleChatSubmit = async (e: React.FormEvent) => {
@@ -190,11 +230,38 @@ export default function AdminDashboard() {
     setQuery("");
     setLoading(true);
     
+    const currentSess = pastSessions.find((s: any) => s.session_id === activeSessionId);
+    const subjectName = currentSess?.subject_name || "General Session";
+    
+    let tempEnrolled: any[] = [];
+    if (currentSess && currentSess.project_id) {
+      if (role === "Admin") {
+        for (const ws of directoryTree) {
+          const prj = ws.subjects.find((s: any) => s.id === currentSess.project_id);
+          if (prj) { tempEnrolled = prj.students || []; break; }
+        }
+      } else if (role === "Host") {
+        const prj = hostSubjects.find((p: any) => p.subject_id === currentSess.project_id);
+        if (prj) { tempEnrolled = prj.students || []; }
+      }
+    }
+    const tempPresent = latestData.map((d: any) => d.user_id);
+    const presCount = tempEnrolled.filter(s => tempPresent.includes(s.username)).length;
+    const absCount = tempEnrolled.filter(s => !tempPresent.includes(s.username)).length;
+
     try {
-      const res = await fetch(`http://${window.location.hostname}:8000/api/chat`, {
+      const res = await fetch(`/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, user_id: selectedUser, session_id: activeSessionId })
+        body: JSON.stringify({ 
+          message: userMessage, 
+          user_id: selectedUser, 
+          session_id: activeSessionId,
+          role: role,
+          subject_name: subjectName,
+          present_count: presCount,
+          absent_count: absCount
+        })
       });
       const json = await res.json();
       setChatLog(prev => [...prev, { role: "agent", content: json.response }]);
@@ -213,16 +280,17 @@ export default function AdminDashboard() {
     const formData = new FormData();
     formData.append("file", uploadFile);
     formData.append("role_name", uploadRole);
-    formData.append("industry", industryMode);
+    formData.append("industry", "Education");
 
     try {
-      const res = await fetch(`http://${window.location.hostname}:8000/api/users/bulk-upload`, {
+      const res = await fetch(`/api/users/bulk-upload`, {
         method: "POST",
         body: formData
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.detail || "Upload failed");
       setUploadResult(json);
+      setRefreshKey(prev => prev + 1);
     } catch (err: any) {
       alert("Error: " + err.message);
     }
@@ -232,10 +300,35 @@ export default function AdminDashboard() {
   const handleStudentClick = async (username: string) => {
     setSelectedStudentName(username);
     try {
-      const res = await fetch(`http://${window.location.hostname}:8000/api/telemetry/user_timeline?session_id=${activeSessionId}&user_id=${username}`);
+      const res = await fetch(`/api/telemetry/user_timeline?session_id=${activeSessionId}&user_id=${username}`);
       if (!res.ok) {
          setSelectedStudentHistory([]);
          alert(`Error ${res.status}: Did you restart your python backend?`);
+         return;
+      }
+      const json = await res.json();
+      if (json.timeline) {
+        setSelectedStudentHistory(json.timeline);
+        setSelectedStudentOverallScore(json.overall_score);
+      } else if (Array.isArray(json)) {
+        setSelectedStudentHistory(json);
+        setSelectedStudentOverallScore(0);
+      } else {
+        setSelectedStudentHistory([]);
+        setSelectedStudentOverallScore(0);
+      }
+    } catch (e) {
+      console.error(e);
+      setSelectedStudentHistory([]);
+    }
+  };
+
+  const handleSubjectStudentClick = async (project_id: number, username: string) => {
+    setSelectedStudentName(username);
+    try {
+      const res = await fetch(`/api/user_subject_timeline?project_id=${project_id}&user_id=${username}`);
+      if (!res.ok) {
+         setSelectedStudentHistory([]);
          return;
       }
       const json = await res.json();
@@ -263,12 +356,12 @@ export default function AdminDashboard() {
 
   const handleCreateMeeting = async () => {
     const selSubj = (document.getElementById('subject_select') as HTMLSelectElement)?.value;
-    if (!selSubj) {
-      alert("Please select a " + (industryMode === 'Education' ? 'Subject' : 'Project'));
+    if (!selSubj || selSubj === "0") {
+      alert("Please select a Subject first.");
       return;
     }
     try {
-      const res = await fetch(`http://${window.location.hostname}:8000/api/sessions/create`, { 
+      const res = await fetch(`/api/sessions/create`, { 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ project_id: parseInt(selSubj) })
@@ -279,6 +372,52 @@ export default function AdminDashboard() {
     } catch (e) {
       alert("Error creating meeting");
     }
+  };
+
+  const handleEndMeeting = async () => {
+    if (!activeSessionId) return;
+    if (!confirm(`Are you sure you want to end meeting ${activeSessionId}? Students will be permanently disconnected.`)) return;
+    try {
+      const res = await fetch(`/api/sessions/end`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: activeSessionId })
+      });
+      if (res.ok) {
+        alert("Meeting ended successfully.");
+        setActiveSessionId("");
+      } else {
+        const data = await res.json();
+        alert(data.detail || data.message || "Failed to end meeting.");
+      }
+    } catch(e) {
+      console.error(e);
+      alert("Error ending meeting");
+    }
+  };
+
+  // --- Attendance Calculation ---
+  let enrolledStudents: any[] = [];
+  const currentSession = pastSessions.find((s: any) => s.session_id === activeSessionId);
+  if (currentSession && currentSession.project_id) {
+    if (role === "Admin") {
+      for (const ws of directoryTree) {
+        const prj = ws.subjects.find((s: any) => s.id === currentSession.project_id);
+        if (prj) { enrolledStudents = ws.students || []; break; }
+      }
+    } else if (role === "Host") {
+      const prj = hostSubjects.find((p: any) => p.subject_id === currentSession.project_id);
+      if (prj) { enrolledStudents = prj.students || []; }
+    }
+  }
+  
+  const presentUsernames = latestData.map((d: any) => d.user_id);
+  const presentList = enrolledStudents.filter(s => presentUsernames.includes(s.username));
+  const absentList = enrolledStudents.filter(s => !presentUsernames.includes(s.username));
+  
+  const handleShowAttendance = () => {
+    setAttendanceList([...presentList.map(s => ({...s, present: true})), ...absentList.map(s => ({...s, present: false}))]);
+    setIsAttendanceModalOpen(true);
   };
 
   // --- ECharts Options ---
@@ -319,23 +458,24 @@ export default function AdminDashboard() {
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-10">
-        <div className="p-6 border-b border-slate-800">
-          <h1 className="text-2xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
-            FocusAI
-          </h1>
+      <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-10 overflow-y-auto overflow-x-hidden">
+        <div className="p-6 border-b border-slate-800 shrink-0">
+          <div className="flex justify-center w-full">
+            <img src="/logo.jpg" alt="FocusAI Logo" className="w-full max-w-[180px] h-auto object-contain mix-blend-screen" />
+          </div>
           <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest">{role} Portal</p>
         </div>
 
         <div className="p-4 border-b border-slate-800 space-y-3">
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">
-              Select {industryMode === 'Education' ? 'Subject' : 'Project'}
+              Select Subject
             </label>
             {mySubjects.length === 0 ? (
               <p className="text-xs text-red-400">You are not assigned to any subjects.</p>
             ) : (
               <select id="subject_select" value={selectedProject} onChange={(e) => setSelectedProject(parseInt(e.target.value))} className="w-full bg-slate-800 border border-slate-700 text-white font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm">
+                {role === "Admin" && <option value={0}>-- All Classes (System View) --</option>}
                 {mySubjects.map(sub => (
                   <option key={sub.id} value={sub.id}>{sub.workspace_name} - {sub.name}</option>
                 ))}
@@ -349,7 +489,8 @@ export default function AdminDashboard() {
               placeholder="e.g. AI-101"
               value={activeSessionId}
               onChange={(e) => setActiveSessionId(e.target.value.toUpperCase())}
-              className="w-full bg-slate-800 border border-slate-700 text-white font-bold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase text-sm"
+              className="w-full bg-slate-800 border border-slate-700 text-white font-bold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase text-sm disabled:opacity-50"
+              disabled={role !== "Admin"}
             />
           </div>
           <button 
@@ -359,73 +500,99 @@ export default function AdminDashboard() {
           >
             + Create New Meeting
           </button>
+          {activeSessionId && (
+            <button 
+              onClick={handleEndMeeting}
+              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl transition-all shadow-md text-sm mt-2"
+            >
+              End Active Meeting
+            </button>
+          )}
           
           <div className="mt-4 pt-4 border-t border-slate-800">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Past Sessions</label>
-            <div className="space-y-1 max-h-40 overflow-y-auto">
+            <button 
+              onClick={() => setIsPastSessionsOpen(!isPastSessionsOpen)} 
+              className="w-full flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 hover:text-slate-300 transition-colors"
+            >
+              <span>Past Sessions</span>
+              <span className="text-[10px]">{isPastSessionsOpen ? "▼" : "▶"}</span>
+            </button>
+            {isPastSessionsOpen && (
+              <div className="space-y-1">
               {pastSessions.length === 0 && <p className="text-xs text-slate-500">No past sessions.</p>}
               {pastSessions.map((s: any) => (
                 <button
                   key={s.session_id}
-                  onClick={() => { setActiveSessionId(s.session_id); setActiveTab("monitoring"); }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  onClick={() => { 
+                    setActiveSessionId(s.session_id); 
+                    if (s.project_id) setSelectedProject(s.project_id);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors flex justify-between items-start ${
                     activeSessionId === s.session_id ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
                   }`}
                 >
-                  <span className="font-bold">{s.session_id}</span> <span className="opacity-60 text-[10px] block">{new Date(s.start_time).toLocaleDateString()}</span>
+                  <div>
+                    <span className="font-bold block">{s.session_id}</span>
+                    <span className="opacity-60 text-[10px] block mt-0.5">{new Date(s.start_time).toLocaleDateString()}</span>
+                  </div>
+                  {s.subject_name && (
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold max-w-[80px] truncate ${
+                      activeSessionId === s.session_id ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-300'
+                    }`}>
+                      {s.subject_name}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
+            )}
           </div>
         </div>
         
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        <nav className="flex-1 p-4 space-y-2 shrink-0">
           {role === "Admin" && (
             <>
-              <button onClick={() => setActiveTab("analytics")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <button onClick={() => setActiveTab("analytics")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'analytics' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <LayoutDashboard size={18} />
                 <span className="font-semibold text-sm">Live Analytics</span>
               </button>
-              <button onClick={() => setActiveTab("historical")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'historical' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <button onClick={() => setActiveTab("historical")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'historical' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <History size={18} />
                 <span className="font-semibold text-sm">Historical Stats</span>
               </button>
-              <button onClick={() => setActiveTab("agent")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'agent' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                <Bot size={18} />
-                <span className="font-semibold text-sm">AI Agent</span>
-              </button>
+
             </>
           )}
           
-          <button onClick={() => setActiveTab("monitoring")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'monitoring' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+          <button onClick={() => setActiveTab("monitoring")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'monitoring' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
             <Activity size={18} />
             <span className="font-semibold text-sm">Session Roster</span>
           </button>
           
+          {role === "Host" && (
+            <button onClick={() => setActiveTab("my-subjects")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'my-subjects' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <BookOpen size={18} />
+              <span className="font-semibold text-sm">My Subjects</span>
+            </button>
+          )}
+          
           {role === "Admin" && (
             <>
-              <button onClick={() => setActiveTab("directory")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'directory' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <button onClick={() => setActiveTab("directory")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'directory' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <FileText size={18} />
                 <span className="font-semibold text-sm">Directory Viewer</span>
               </button>
-              <button onClick={() => setActiveTab("users")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'users' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <button onClick={() => setActiveTab("users")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'users' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <Users size={18} />
                 <span className="font-semibold text-sm">User Provisioning</span>
               </button>
-              <button onClick={() => setActiveTab("taxonomy")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'taxonomy' ? 'bg-blue-600 shadow-lg shadow-blue-900/50 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <button onClick={() => setActiveTab("taxonomy")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] ${activeTab === 'taxonomy' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <CheckCircle size={18} />
                 <span className="font-semibold text-sm">Taxonomy & Faculty</span>
               </button>
             </>
           )}
         </nav>
-        
-        <div className="p-4 border-t border-slate-800">
-          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-400 hover:bg-rose-500/10 transition-all">
-            <LogOut size={18} />
-            <span className="font-semibold text-sm">Sign Out</span>
-          </button>
-        </div>
       </aside>
 
       {/* Main Content Area */}
@@ -440,35 +607,104 @@ export default function AdminDashboard() {
               </h2>
               <p className="text-slate-500 font-medium mt-1">
                 {activeTab === 'analytics' && "System-wide live cognitive insights."}
-                {activeTab === 'historical' && "System-wide historical cognitive trends."}
+                {activeTab === 'historical' && (selectedProject ? "Class-wide historical cognitive trends." : "System-wide historical cognitive trends.")}
                 {activeTab === 'monitoring' && "Real-time biometric telemetry stream."}
-                {activeTab === 'agent' && "Chat with the LangGraph RAG Assistant."}
+                {activeTab === 'my-subjects' && "Overview of enrolled students and their attention per subject."}
                 {activeTab === 'users' && "Bulk upload and manage user access."}
               </p>
             </div>
             
             
             <div className="flex items-center gap-4">
-              {role === 'Admin' && (
-                <div className="bg-white border border-slate-200 rounded-xl flex p-1 shadow-sm">
-                  <button onClick={() => handleIndustryChange("Education")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${industryMode === 'Education' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Education Mode</button>
-                  <button onClick={() => handleIndustryChange("Corporate")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${industryMode === 'Corporate' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Corporate Mode</button>
-                </div>
-              )}
-              {(activeTab === 'historical' || activeTab === 'agent') && (
+              
+              {activeTab === 'historical' && (
                  <select 
                    value={selectedUser}
                    onChange={(e) => setSelectedUser(e.target.value)}
-                   className="bg-white border-2 border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm outline-none transition-colors"
+                   className="appearance-none bg-white border-2 border-slate-200 text-slate-700 font-bold py-2.5 px-4 pr-10 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm outline-none transition-colors bg-no-repeat bg-[right_10px_center] bg-[length:16px_16px]"
+                   style={{ backgroundImage: `url('data:image/svg+xml;utf8,<svg fill="none" stroke="%2364748b" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path></svg>')` }}
                  >
-                   <option value="all">System Average</option>
-                   {Array.from(new Map(taxonomyTree.flatMap(ws => ws.students || []).map(stu => [stu.username, stu])).values()).map((stu: any) => (
-                     <option key={stu.username} value={stu.username}>{industryMode === 'Education' ? 'Student' : 'Employee'}: {stu.username}</option>
-                   ))}
+                   <option value="all">{selectedProject ? "Class Average" : "System Average"}</option>
+                   {(() => {
+                     let studentsToDisplay = [];
+                     if (selectedProject) {
+                       for (const ws of directoryTree) {
+                         const prj = ws.subjects.find((s: any) => s.id === parseInt(selectedProject.toString()));
+                         if (prj) {
+                           studentsToDisplay = prj.students || [];
+                           break;
+                         }
+                       }
+                     } else {
+                       const allStus = directoryTree.flatMap((ws: any) => 
+                         [...(ws.students || []), ...ws.subjects.flatMap((s: any) => s.students || [])]
+                       );
+                       studentsToDisplay = Array.from(new Map(allStus.map((stu: any) => [stu.username, stu])).values());
+                     }
+                     return studentsToDisplay.map((stu: any) => (
+                       <option key={stu.username} value={stu.username}>Student: {stu.username}</option>
+                     ));
+                   })()}
                  </select>
               )}
+              <div className="relative ml-4">
+                <button 
+                  onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
+                  className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-black text-sm uppercase shrink-0">
+                    {username ? username.charAt(0) : "U"}
+                  </div>
+                  <div className="flex flex-col text-left">
+                    <span className="font-bold text-slate-700 text-sm leading-none">{username || "User"}</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">{role}</span>
+                  </div>
+                </button>
+                {isProfileDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 py-1 z-50">
+                    <button 
+                      onClick={handleLogout}
+                      className="w-full text-left px-4 py-3 text-sm font-bold text-rose-500 hover:bg-rose-50 transition-colors flex items-center gap-2"
+                    >
+                      <LogOut size={16} />
+                      Sign Out
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </header>
+
+          {/* Global Active Session Info */}
+          {activeSessionId && ["analytics", "historical", "monitoring"].includes(activeTab) && (
+              <div className="bg-white/80 backdrop-blur-xl p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 flex justify-between items-center mb-6 transition-all duration-300 hover:shadow-2xl hover:shadow-indigo-100">
+                <div>
+                  <h3 className="font-black text-slate-800 text-2xl tracking-tight">
+                    Meeting Code: {activeSessionId}
+                  </h3>
+                  <p className="text-slate-500 font-medium mt-1">
+                    {currentSession?.subject_name || pastSessions.find((s: any) => s.session_id === activeSessionId)?.subject_name || "General Session"}
+                  </p>
+                </div>
+                <div className="flex gap-4 items-center">
+                  {enrolledStudents.length > 0 && (
+                    <button onClick={handleShowAttendance} className="text-left bg-white border border-slate-100 px-5 py-3 rounded-2xl hover:bg-slate-50 hover:scale-[1.02] transition-all duration-300 cursor-pointer group shadow-sm hover:shadow-md">
+                       <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1 group-hover:text-indigo-500 transition-colors">Class Attendance</div>
+                       <div className="flex gap-4 text-sm font-black">
+                         <span className="text-emerald-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> Present: {presentList.length}</span>
+                         <span className="text-slate-300">|</span>
+                         <span className="text-rose-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500"></span> Absent: {absentList.length}</span>
+                       </div>
+                    </button>
+                  )}
+                  {activeTab === "monitoring" && (
+                    <div className="px-4 py-2 bg-emerald-50 text-emerald-600 font-bold rounded-xl text-sm border border-emerald-100 animate-pulse h-fit">
+                      LIVE TELEMETRY
+                    </div>
+                  )}
+                </div>
+              </div>
+          )}
 
           {/* Tab Contents */}
           {activeTab === "analytics" && (
@@ -476,7 +712,7 @@ export default function AdminDashboard() {
               
               {/* Summary Cards */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
                    <div className="text-4xl font-black text-slate-800">
                      {data.length > 0 ? Math.round(data.reduce((acc: any, curr: any) => acc + curr.focus_score, 0) / data.length) + "%" : "--"}
@@ -484,7 +720,7 @@ export default function AdminDashboard() {
                    <p className="text-xs text-slate-400 mt-2 text-center">Average attention of all users</p>
                 </div>
                 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Attention Loss / Deviation</h3>
                    <div className="text-4xl font-black text-rose-600">
                      {data.length > 10 ? 
@@ -497,15 +733,15 @@ export default function AdminDashboard() {
                    <p className="text-xs text-slate-400 mt-2 text-center">Start of session vs End of session</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
-                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Primary Distractor</h3>
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Dominant Behavior</h3>
                    <div className="text-2xl font-black text-amber-600">
                      {Object.keys(moodCounts).length > 0 ? Object.keys(moodCounts).reduce((a, b) => moodCounts[a] > moodCounts[b] ? a : b) : "--"}
                    </div>
                    <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Engagement Time</h3>
                    <div className="text-lg font-black text-slate-700 flex gap-4">
                      <div className="flex flex-col items-center">
@@ -521,7 +757,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+              <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out">
                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
                   Live Focus Trend
@@ -533,7 +769,7 @@ export default function AdminDashboard() {
                 )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                 <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out">
                     <h3 className="font-bold text-slate-800 mb-4">Live Mood Distribution</h3>
                     <ReactECharts option={moodOption} style={{ height: "250px", width: "100%" }} />
                  </div>
@@ -559,7 +795,7 @@ export default function AdminDashboard() {
 
               {/* Summary Cards */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Avg Session Focus</h3>
                    <div className="text-4xl font-black text-slate-800">
                      {historicalData ? `${historicalData.overall_avg_focus}%` : "--"}
@@ -567,7 +803,7 @@ export default function AdminDashboard() {
                    <p className="text-xs text-slate-400 mt-2 text-center">Average attention in selected period</p>
                 </div>
                 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Attention Loss / Deviation</h3>
                    <div className={`text-4xl font-black ${historicalData && historicalData.focus_deviation < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                      {historicalData ? `${historicalData.focus_deviation > 0 ? '+' : ''}${historicalData.focus_deviation}%` : "--"}
@@ -575,15 +811,15 @@ export default function AdminDashboard() {
                    <p className="text-xs text-slate-400 mt-2 text-center">Start of period vs End of period</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
-                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Primary Distractor</h3>
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
+                   <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Dominant Behavior</h3>
                    <div className="text-2xl font-black text-amber-600">
                      {historicalData ? historicalData.primary_emotion : "--"}
                    </div>
                    <p className="text-xs text-slate-400 mt-2 text-center">Most frequent behavioral emotion</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out flex flex-col justify-center items-center">
                    <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Engagement Time</h3>
                    <div className="text-lg font-black text-slate-700 flex gap-4">
                      <div className="flex flex-col items-center">
@@ -599,7 +835,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+              <div className="bg-white/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 hover:scale-[1.02] hover:shadow-2xl hover:shadow-indigo-100/50 transition-all duration-300 ease-out">
                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
                   Focus Trend
@@ -619,19 +855,19 @@ export default function AdminDashboard() {
           )}
 
           {activeTab === "monitoring" && (
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100/60 overflow-hidden transition-all duration-300">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100 text-xs uppercase tracking-widest text-slate-500">
-                      <th className="p-4 font-bold pl-6">User ID</th>
-                      <th className="p-4 font-bold">Status</th>
-                      <th className="p-4 font-bold">Focus</th>
-                      <th className="p-4 font-bold">Mood</th>
-                      <th className="p-4 font-bold">Tense</th>
-                      <th className="p-4 font-bold">Eyebrows</th>
-                      <th className="p-4 font-bold">Yawning</th>
-                      <th className="p-4 font-bold">Speaking/Lips</th>
+                    <tr className="bg-slate-50/80 backdrop-blur-sm border-b border-slate-200/50 text-[11px] font-black uppercase tracking-widest text-slate-400">
+                      <th className="p-5 pl-6">User ID</th>
+                      <th className="p-5">Status</th>
+                      <th className="p-5">Focus</th>
+                      <th className="p-5">Mood</th>
+                      <th className="p-5">Tense</th>
+                      <th className="p-5">Yawning</th>
+                      <th className="p-5">Speaking/Lips</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -639,10 +875,13 @@ export default function AdminDashboard() {
                        <tr><td colSpan={8} className="p-12 text-center text-slate-400 bg-slate-50/50">No active streams.</td></tr>
                     )}
                     {latestData.length > 0 && latestData.map((row: any, i) => (
-                      <tr key={i} onClick={() => handleStudentClick(row.user_id)} className="hover:bg-slate-50 transition-colors group cursor-pointer">
-                        <td className="p-4 pl-6 font-bold flex items-center gap-3 text-slate-700">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping"></span>
-                          {row.user_id}
+                      <tr key={i} onClick={() => handleStudentClick(row.user_id)} className="hover:bg-indigo-50/50 transition-colors group cursor-pointer border-b border-slate-100 last:border-0 hover:shadow-sm relative z-10 hover:z-20">
+                        <td className="p-5 pl-6 flex items-center gap-3 text-slate-700">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 group-hover:animate-ping shrink-0 shadow-[0_0_10px_rgba(16,185,129,0.5)]"></span>
+                          <div className="flex flex-col">
+                            <span className="font-bold text-sm leading-none group-hover:text-indigo-600 transition-colors">{row.full_name || row.user_id}</span>
+                            <span className="font-black text-[10px] text-slate-400 uppercase tracking-widest mt-1">{row.user_id}</span>
+                          </div>
                         </td>
                         <td className="p-4">
                           <span className={`px-3 py-1 rounded-full text-xs font-bold ${row.status === 'Attentive' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
@@ -654,9 +893,7 @@ export default function AdminDashboard() {
                         <td className="p-4">
                           {row.is_tense ? <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
                         </td>
-                        <td className="p-4 text-slate-600 font-medium">
-                          {row.eyebrows}
-                        </td>
+
                         <td className="p-4">
                           {row.yawning ? <span className="bg-rose-100 text-rose-700 px-2 py-1 rounded-md text-xs font-bold">Yes</span> : <span className="text-slate-400 text-sm">No</span>}
                         </td>
@@ -669,75 +906,125 @@ export default function AdminDashboard() {
                 </table>
               </div>
             </div>
-            
-          )}
-
-          {activeTab === "agent" && (
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 flex flex-col h-[600px] animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-2">
-                {chatLog.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-50">
-                    <Bot size={48} className="mb-4" />
-                    <p>Ask about engagement trends, focus drops, or cognitive stats.</p>
-                  </div>
-                ) : (
-                  chatLog.map((msg, idx) => (
-                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-none shadow-md shadow-blue-500/20' : 'bg-slate-100 text-slate-800 rounded-bl-none'}`}>
-                        {msg.content}
-                      </div>
-                    </div>
-                  ))
-                )}
-                {loading && (
-                   <div className="flex justify-start">
-                      <div className="bg-slate-100 text-slate-500 rounded-2xl rounded-bl-none px-5 py-3 text-sm flex gap-1">
-                        <span className="animate-bounce">.</span><span className="animate-bounce delay-75">.</span><span className="animate-bounce delay-150">.</span>
-                      </div>
-                   </div>
-                )}
-              </div>
-              <form onSubmit={handleChatSubmit} className="relative">
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Query the TimescaleDB..."
-                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl pl-5 pr-14 py-4 focus:outline-none focus:border-blue-500 focus:bg-white transition-all text-slate-700 font-medium"
-                />
-                <button type="submit" disabled={loading || !query.trim()} className="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-xl transition-colors disabled:opacity-50">
-                  <Bot size={20} />
-                </button>
-              </form>
             </div>
           )}
+
+          {activeTab === "my-subjects" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {hostSubjects.length === 0 ? (
+                <div className="bg-white p-8 rounded-3xl border border-slate-100 text-center shadow-sm">
+                  <p className="text-slate-500 font-bold">No subjects assigned yet.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-8">
+                  {hostSubjects.map((subj: any) => (
+                    <div key={subj.subject_id} className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                      <h3 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
+                        <BookOpen className="text-blue-500" size={24} />
+                        {subj.subject_name}
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="border-b-2 border-slate-100 text-xs text-slate-400 uppercase tracking-widest">
+                              <th className="pb-3 px-4">Student</th>
+                              <th className="pb-3 px-4">Avg Attention</th>
+                              <th className="pb-3 px-4">Spoofing Detected</th>
+                              <th className="pb-3 px-4 text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {subj.students.length === 0 && (
+                               <tr><td colSpan={4} className="py-8 text-center text-slate-400 font-medium">No students enrolled.</td></tr>
+                            )}
+                            {subj.students.map((student: any) => (
+                              <tr key={student.username} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                <td className="py-4 px-4">
+                                  <div className="font-bold text-slate-700">{student.full_name}</div>
+                                  <div className="text-xs text-slate-400 font-medium">{student.username}</div>
+                                </td>
+                                <td className="py-4 px-4">
+                                  {student.avg_attention !== null ? (
+                                    <span className={`font-black ${student.avg_attention >= 60 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                      {student.avg_attention}%
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">--</span>
+                                  )}
+                                </td>
+                                <td className="py-4 px-4">
+                                  {student.spoofed === "YES" ? (
+                                    <span className="text-[10px] uppercase tracking-wider bg-rose-100 text-rose-600 font-bold px-2 py-1 rounded-md">Yes</span>
+                                  ) : (
+                                    <span className="text-slate-400 text-sm font-medium">No</span>
+                                  )}
+                                </td>
+                                <td className="py-4 px-4 text-right">
+                                  <button onClick={() => {
+                                    handleSubjectStudentClick(subj.subject_id, student.username);
+                                  }} className="text-blue-500 hover:text-blue-700 text-[10px] font-bold uppercase tracking-wider bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors">
+                                    View Details
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+
 
           {activeTab === "users" && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
               
-              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
-                <div className="max-w-2xl mx-auto">
-                  <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                      <Upload className="text-blue-600" size={32} />
+              <div className="flex border-b border-slate-200">
+                <button 
+                  onClick={() => setUserProvisioningTab('upload')} 
+                  className={`py-3 px-6 font-bold text-sm border-b-2 transition-colors ${userProvisioningTab === 'upload' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                >
+                  Bulk Provisioning
+                </button>
+                <button 
+                  onClick={() => setUserProvisioningTab('manage')} 
+                  className={`py-3 px-6 font-bold text-sm border-b-2 transition-colors ${userProvisioningTab === 'manage' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                >
+                  Manage Users
+                </button>
+              </div>
+
+              {userProvisioningTab === 'upload' && (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
+                  <div className="max-w-2xl mx-auto">
+                    <div className="text-center mb-8">
+                      <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <Upload className="text-blue-600" size={32} />
+                      </div>
+                      <h3 className="text-2xl font-black text-slate-800">Bulk Provisioning</h3>
+                      <p className="text-slate-500 mt-2">Upload an Excel (.xlsx), CSV, or PDF file to automatically extract names and emails and generate secure credentials.</p>
                     </div>
-                    <h3 className="text-2xl font-black text-slate-800">Bulk Provisioning</h3>
-                    <p className="text-slate-500 mt-2">Upload an Excel (.xlsx), CSV, or PDF file to automatically extract names and emails and generate secure credentials.</p>
-                  </div>
                   
+                  <div className="flex gap-4 mb-6 p-1 bg-slate-100 rounded-xl">
+                    <button 
+                      className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${uploadRole === 'User' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      onClick={() => setUploadRole("User")}
+                    >
+                      Provision Students
+                    </button>
+                    <button 
+                      className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${uploadRole === 'Host' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      onClick={() => setUploadRole("Host")}
+                    >
+                      Provision Hosts
+                    </button>
+                  </div>
+
                   <form onSubmit={handleBulkUpload} className="space-y-6">
-                    <div className="grid grid-cols-2 gap-4">
-                      <label className={`border-2 rounded-2xl p-4 cursor-pointer transition-all ${uploadRole === 'User' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                        <input type="radio" name="role" value="User" checked={uploadRole === 'User'} onChange={() => setUploadRole("User")} className="hidden" />
-                        <div className="font-bold text-slate-800">{industryMode === 'Education' ? 'User' : 'Employee'} Role</div>
-                        <div className="text-xs text-slate-500 mt-1">Standard tracking participant</div>
-                      </label>
-                      <label className={`border-2 rounded-2xl p-4 cursor-pointer transition-all ${uploadRole === 'Host' ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                        <input type="radio" name="role" value="Host" checked={uploadRole === 'Host'} onChange={() => setUploadRole("Host")} className="hidden" />
-                        <div className="font-bold text-slate-800">{industryMode === 'Education' ? 'Host' : 'Manager'} Role</div>
-                        <div className="text-xs text-slate-500 mt-1">Access to live monitoring</div>
-                      </label>
-                    </div>
 
                     <div className="border-2 border-dashed border-slate-300 rounded-3xl p-10 text-center hover:bg-slate-50 transition-colors relative">
                       <input 
@@ -763,9 +1050,8 @@ export default function AdminDashboard() {
                   </form>
                 </div>
               </div>
-
-              {/* Results Table */}
-              {uploadResult && uploadResult.users && (
+              )}
+              {userProvisioningTab === 'upload' && uploadResult && uploadResult.users && (
                 <div className="bg-emerald-50 rounded-3xl border border-emerald-200 p-8 animate-in fade-in slide-in-from-top-4">
                   <div className="flex items-center gap-3 mb-6">
                     <CheckCircle className="text-emerald-600" size={28} />
@@ -801,7 +1087,8 @@ export default function AdminDashboard() {
               )}
 
               {/* Registered Users Table */}
-              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 mt-8">
+              {userProvisioningTab === 'manage' && (
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl font-black text-slate-800">All Registered Users</h3>
                   <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold text-sm">{registeredUsers.length} Users</span>
@@ -811,7 +1098,8 @@ export default function AdminDashboard() {
                   <table className="w-full text-left border-collapse text-sm">
                     <thead className="bg-slate-50 text-slate-500 uppercase tracking-widest text-xs">
                       <tr>
-                        <th className="p-4 font-bold pl-6 border-b border-slate-100">Username</th>
+                        <th className="p-4 font-bold pl-6 border-b border-slate-100">PRN / Username</th>
+                        <th className="p-4 font-bold border-b border-slate-100">Name</th>
                         <th className="p-4 font-bold border-b border-slate-100">Email</th>
                         <th className="p-4 font-bold border-b border-slate-100">Password</th>
                         <th className="p-4 font-bold border-b border-slate-100">Role</th>
@@ -820,16 +1108,17 @@ export default function AdminDashboard() {
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {registeredUsers.length === 0 ? (
-                        <tr><td colSpan={5} className="p-12 text-center text-slate-400">No users found.</td></tr>
+                        <tr><td colSpan={6} className="p-12 text-center text-slate-400">No users found.</td></tr>
                       ) : (
                         registeredUsers.map((u: any, i: number) => (
                           <tr key={i} className="hover:bg-slate-50 transition-colors">
                             <td className="p-4 pl-6 font-bold text-slate-700">{u.username}</td>
+                            <td className="p-4 font-medium text-slate-600">{u.full_name || '-'}</td>
                             <td className="p-4 text-slate-500 font-medium">{u.email}</td>
                             <td className="p-4 font-mono text-slate-500 bg-slate-100 rounded px-2 py-1 my-2 inline-block text-xs">{u.password || "Hidden"}</td>
                             <td className="p-4">
                               <span className={`px-2 py-1 rounded font-bold text-xs ${u.role === 'Admin' ? 'bg-amber-100 text-amber-700' : u.role === 'Host' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                                {industryMode === 'Corporate' ? (u.role === 'Host' ? 'Manager' : u.role === 'User' ? 'Employee' : u.role) : u.role}
+                                {u.role}
                               </span>
                             </td>
                             <td className="p-4 text-right">
@@ -837,11 +1126,11 @@ export default function AdminDashboard() {
                                 <button onClick={async () => {
                                   if(!confirm('Delete this user?')) return;
                                   try {
-                                    const res = await fetch(`http://${window.location.hostname}:8000/api/users/${u.id}`, {method: 'DELETE'});
+                                    const res = await fetch(`/api/users/${u.id}`, {method: 'DELETE'});
                                     const j = await res.json();
                                     alert(j.message || "Deleted");
                                     // re-fetch users
-                                    const r2 = await fetch(`http://${window.location.hostname}:8000/api/users/list`);
+                                    const r2 = await fetch(`/api/users/list`);
                                     const j2 = await r2.json();
                                     setRegisteredUsers(j2.users || []);
                                   } catch (e) {
@@ -859,6 +1148,7 @@ export default function AdminDashboard() {
                   </table>
                 </div>
               </div>
+              )}
 
             </div>
           )}
@@ -869,7 +1159,7 @@ export default function AdminDashboard() {
                 
                 {/* Create Course */}
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
-                  <h3 className="text-xl font-black text-slate-800 mb-4">Create New {industryMode === 'Education' ? 'Course' : 'Workspace'}</h3>
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Create New Course</h3>
                   <div className="space-y-4">
                     <div>
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Name</label>
@@ -883,8 +1173,8 @@ export default function AdminDashboard() {
                       const n = (document.getElementById('new_course_name') as HTMLInputElement)?.value;
                       const c = (document.getElementById('new_course_code') as HTMLInputElement)?.value;
                       if(!n || !c) return alert("Fill all fields");
-                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/course`, {
-                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name:n, code:c, industry:industryMode})
+                      const res = await fetch(`/api/taxonomy/course`, {
+                        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name:n, code:c, industry:"Education"})
                       });
                       const j = await res.json();
                       alert(j.message);
@@ -898,10 +1188,10 @@ export default function AdminDashboard() {
 
                 {/* Create Subject */}
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
-                  <h3 className="text-xl font-black text-slate-800 mb-4">Create New {industryMode === 'Education' ? 'Subject' : 'Project'}</h3>
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Create New Subject</h3>
                   <div className="space-y-4">
                     <div>
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Course' : 'Workspace'}</label>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select Course</label>
                       <select id="new_sub_course" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
                         {taxonomyTree.map(ws => <option key={ws.id} value={ws.id}>{ws.name} ({ws.code})</option>)}
                       </select>
@@ -914,7 +1204,7 @@ export default function AdminDashboard() {
                       const cid = (document.getElementById('new_sub_course') as HTMLSelectElement)?.value;
                       const n = (document.getElementById('new_sub_name') as HTMLInputElement)?.value;
                       if(!cid || !n) return alert("Fill all fields");
-                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/subject`, {
+                      const res = await fetch(`/api/taxonomy/subject`, {
                         method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({workspace_id:parseInt(cid), name:n})
                       });
                       const j = await res.json();
@@ -928,10 +1218,10 @@ export default function AdminDashboard() {
 
                 {/* Assign Faculty */}
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 md:col-span-2">
-                  <h3 className="text-xl font-black text-slate-800 mb-4">Assign {industryMode === 'Education' ? 'Faculty / Host' : 'Manager'} to {industryMode === 'Education' ? 'Subject' : 'Project'}</h3>
+                  <h3 className="text-xl font-black text-slate-800 mb-4">Assign Faculty / Host to Subject</h3>
                   <div className="flex flex-col md:flex-row gap-4 items-end">
                     <div className="flex-1 w-full">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Faculty' : 'Manager'}</label>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select Faculty</label>
                       <select id="assign_user" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
                         {registeredUsers.filter(u => u.role === "Host" || u.role === "Admin").map(u => (
                           <option key={u.username} value={u.username}>{u.username}</option>
@@ -939,7 +1229,7 @@ export default function AdminDashboard() {
                       </select>
                     </div>
                     <div className="flex-1 w-full">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select {industryMode === 'Education' ? 'Subject' : 'Project'}</label>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Select Subject</label>
                       <select id="assign_sub" className="w-full bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-3 rounded-xl">
                         {taxonomyTree.map(ws => (
                           <optgroup key={ws.id} label={ws.name}>
@@ -955,7 +1245,7 @@ export default function AdminDashboard() {
                       const val = (document.getElementById('assign_sub') as HTMLSelectElement)?.value;
                       if(!u || !val) return alert("Select user and subject");
                       const [wid, pid] = val.split(',');
-                      const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/assign`, {
+                      const res = await fetch(`/api/taxonomy/assign`, {
                         method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({username: u, workspace_id: parseInt(wid), project_id: parseInt(pid)})
                       });
                       const j = await res.json();
@@ -979,7 +1269,7 @@ export default function AdminDashboard() {
                         <h4 className="font-black text-lg text-slate-800">{ws.name} <span className="text-slate-400 font-medium text-sm">({ws.code})</span></h4>
                         <button onClick={async () => {
                           if(!confirm('Delete this course?')) return;
-                          await fetch(`http://${window.location.hostname}:8000/api/taxonomy/course/${ws.id}`, {method: 'DELETE'});
+                          await fetch(`/api/taxonomy/course/${ws.id}`, {method: 'DELETE'});
                           setRefreshKey(prev => prev + 1);
                         }} className="text-rose-400 hover:text-rose-600 transition-colors p-1 rounded-md hover:bg-rose-50">
                           <Trash2 size={16} />
@@ -992,20 +1282,20 @@ export default function AdminDashboard() {
                               <span className="font-bold text-slate-700">{sub.name}</span>
                               <button onClick={async () => {
                                 if(!confirm('Delete this subject?')) return;
-                                await fetch(`http://${window.location.hostname}:8000/api/taxonomy/subject/${sub.id}`, {method: 'DELETE'});
+                                await fetch(`/api/taxonomy/subject/${sub.id}`, {method: 'DELETE'});
                                 setRefreshKey(prev => prev + 1);
                               }} className="text-rose-400 hover:text-rose-600">
                                 <Trash2 size={14} />
                               </button>
                             </div>
                             <div className="flex flex-wrap gap-2 items-center">
-                              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{industryMode === 'Education' ? 'Hosts:' : 'Managers:'}</span>
+                              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Hosts:</span>
                               {sub.hosts.length > 0 ? sub.hosts.map((h: any) => (
                                 <span key={h.id} className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded-md flex items-center gap-2 border border-slate-200">
                                   {h.username}
                                   <button onClick={async () => {
                                     if(!confirm('Remove this host?')) return;
-                                    await fetch(`http://${window.location.hostname}:8000/api/taxonomy/assign/${h.id}/${sub.id}`, {method: 'DELETE'});
+                                    await fetch(`/api/taxonomy/assign/${h.id}/${sub.id}`, {method: 'DELETE'});
                                     setRefreshKey(prev => prev + 1);
                                   }} className="text-rose-400 hover:text-rose-600">
                                     <Trash2 size={12} />
@@ -1033,11 +1323,7 @@ export default function AdminDashboard() {
               <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
                 <h3 className="text-xl font-black text-slate-800 mb-2">Automated Hierarchy Import</h3>
                 <p className="text-slate-500 text-sm mb-6">
-                {industryMode === 'Education' ? (
-                  <>Upload an Excel (.xlsx) or CSV file containing <strong>Course_Name, Subject_Name, Faculty_Name, Faculty_Email, Student_Name, Student_Email</strong> to automatically build your entire directory.</>
-                ) : (
-                  <>Upload an Excel (.xlsx) or CSV file containing <strong>Department_Name, Project_Name, Manager_Name, Manager_Email, Employee_Name, Employee_Email</strong> to automatically build your entire directory.</>
-                )}
+                  <>Upload an Excel (.xlsx) or CSV file containing <strong>Course_Name, Course_Code, Subject_Name, Faculty_Name, Faculty_Email, Student_Name, Student_PRN, Student_Email</strong> to automatically build your entire directory.</>
                 </p>
                 <form onSubmit={async (e) => {
                   e.preventDefault();
@@ -1045,14 +1331,15 @@ export default function AdminDashboard() {
                   setUploading(true);
                   const formData = new FormData();
                   formData.append("file", uploadFile);
-                  formData.append("industry", industryMode);
+                  formData.append("industry", "Education");
                   try {
-                    const res = await fetch(`http://${window.location.hostname}:8000/api/taxonomy/bulk-import`, {
+                    const res = await fetch(`/api/taxonomy/bulk-import`, {
                       method: "POST", body: formData
                     });
                     const json = await res.json();
                     if (!res.ok) throw new Error(json.detail);
                     alert(`✅ ${json.message}`);
+                    setRefreshKey(prev => prev + 1);
                     setActiveTab("directory"); // Re-fetch
                   } catch (err: any) {
                     alert("Error: " + err.message);
@@ -1079,7 +1366,7 @@ export default function AdminDashboard() {
 
               {/* Nested Directory Viewer */}
               <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
-                <h3 className="text-xl font-black text-slate-800 mb-6">All {industryMode === 'Education' ? 'Courses' : 'Workspaces'} & Users</h3>
+                <h3 className="text-xl font-black text-slate-800 mb-6">All Courses & Users</h3>
                 
                 <div className="space-y-4">
                   {directoryTree.map(ws => (
@@ -1095,7 +1382,7 @@ export default function AdminDashboard() {
                         {/* Workspace Students */}
                         {ws.students.length > 0 && (
                           <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                            <h5 className="font-bold text-sm text-blue-800 mb-2 uppercase tracking-widest">Enrolled {industryMode === 'Education' ? 'Students' : 'Users'}</h5>
+                            <h5 className="font-bold text-sm text-blue-800 mb-2 uppercase tracking-widest">Enrolled Students</h5>
                             <div className="flex flex-wrap gap-2">
                               {ws.students.map((stu: any) => (
                                 <span key={stu.id} className="px-3 py-1 bg-white border border-blue-200 text-blue-700 text-sm font-semibold rounded-full shadow-sm">
@@ -1128,7 +1415,7 @@ export default function AdminDashboard() {
 
                               {/* Students */}
                               <div>
-                                <h6 className="font-bold text-xs text-emerald-700 mb-2 uppercase tracking-widest bg-emerald-50 inline-block px-2 py-1 rounded">Enrolled {industryMode === 'Education' ? 'Students' : 'Users'}</h6>
+                                <h6 className="font-bold text-xs text-emerald-700 mb-2 uppercase tracking-widest bg-emerald-50 inline-block px-2 py-1 rounded">Enrolled Students</h6>
                                 <div className="space-y-1">
                                   {sub.students.length === 0 ? <p className="text-xs text-slate-400">None enrolled</p> : sub.students.map((stu: any) => (
                                     <div key={stu.id} className="text-sm font-semibold text-slate-700">{stu.username} <span className="text-slate-400 font-normal">({stu.email})</span></div>
@@ -1154,9 +1441,9 @@ export default function AdminDashboard() {
         
         {/* Student History Modal */}
         {selectedStudentHistory !== null && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-200 border border-slate-200">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/80 backdrop-blur-md">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 transition-all duration-300">
+            <div className="bg-white/95 backdrop-blur-3xl rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-300 ease-out border border-slate-100/50">
+              <div className="p-6 border-b border-slate-100/50 flex justify-between items-center bg-slate-50/50">
                 <div>
                   <h3 className="text-xl font-black text-slate-800">{selectedStudentName}</h3>
                   <div className="flex items-center gap-3 mt-1">
@@ -1208,6 +1495,93 @@ export default function AdminDashboard() {
           </div>
         )}
       </main>
+
+      {/* Floating AI Agent Button */}
+      {(role === "Admin" || role === "Host") && (
+        <button 
+          onClick={() => setIsAgentOpen(!isAgentOpen)}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 rounded-full shadow-2xl shadow-blue-500/50 flex items-center justify-center text-white hover:bg-blue-700 transition-all z-50 group"
+        >
+          {isAgentOpen ? <X size={28} className="group-hover:rotate-90 transition-transform" /> : <Bot size={28} className="group-hover:scale-110 transition-transform" />}
+        </button>
+      )}
+
+      {/* Floating AI Agent Window */}
+      {isAgentOpen && (role === "Admin" || role === "Host") && (
+        <div className="fixed bottom-24 right-6 w-96 h-[500px] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col z-50 overflow-hidden animate-in slide-in-from-bottom-10 fade-in duration-300">
+          <div className="bg-slate-900 p-4 flex justify-between items-center text-white">
+            <div className="flex items-center gap-2">
+              <Bot size={20} className="text-blue-400" />
+              <h3 className="font-bold text-sm">FocusAI Agent</h3>
+            </div>
+            <button onClick={() => setIsAgentOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+            {chatLog.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-50">
+                <Bot size={48} className="mb-4" />
+                <p className="text-center text-sm px-4">Ask about engagement trends, focus drops, or cognitive stats.</p>
+              </div>
+            ) : (
+              chatLog.map((msg, idx) => (
+                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-none shadow-md shadow-blue-500/20' : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-sm'}`}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))
+            )}
+            {loading && (
+               <div className="flex justify-start">
+                  <div className="bg-white border border-slate-200 text-slate-500 rounded-2xl rounded-bl-none px-4 py-2.5 text-sm flex gap-1 shadow-sm">
+                    <span className="animate-bounce">.</span><span className="animate-bounce delay-75">.</span><span className="animate-bounce delay-150">.</span>
+                  </div>
+               </div>
+            )}
+          </div>
+          <form onSubmit={handleChatSubmit} className="p-3 bg-white border-t border-slate-100 relative">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Query the database..."
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-12 py-3 text-sm focus:outline-none focus:border-blue-500 transition-all text-slate-700 font-medium"
+            />
+            <button type="submit" disabled={loading || !query.trim()} className="absolute right-5 top-5 bottom-5 bg-blue-600 hover:bg-blue-700 text-white p-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center">
+              <Bot size={18} />
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Attendance Modal */}
+      {isAttendanceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 transition-all duration-300">
+          <div className="bg-white/95 backdrop-blur-3xl rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] w-full max-w-md flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-300 ease-out border border-slate-100/50">
+            <div className="p-6 border-b border-slate-100/50 flex justify-between items-center bg-slate-50/50">
+              <h3 className="text-lg font-black text-slate-800">Attendance Roster</h3>
+              <button onClick={() => setIsAttendanceModalOpen(false)} className="text-slate-400 hover:text-rose-500 transition-colors"><X size={20}/></button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-3">
+               {attendanceList.map((s: any, idx: number) => (
+                 <div key={idx} className="flex justify-between items-center p-3 rounded-xl border border-slate-100 bg-slate-50">
+                    <div>
+                      <p className="font-bold text-slate-800 text-sm">{s.full_name || s.username}</p>
+                      <p className="text-xs text-slate-400">{s.username}</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${s.present ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                      {s.present ? 'Present' : 'Absent'}
+                    </span>
+                 </div>
+               ))}
+               {attendanceList.length === 0 && <p className="text-center text-slate-500 text-sm">No students enrolled in this subject.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
