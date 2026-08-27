@@ -39,5 +39,6 @@ async def login(req: LoginRequest):
             "access_token": token,
             "token_type": "bearer",
             "role": role_name,
-            "user_id": user.username
+            "user_id": user.username,
+            "full_name": user.full_name or user.username
         }

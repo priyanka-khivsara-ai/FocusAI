@@ -17,30 +17,49 @@ router = APIRouter()
 
 @router.websocket("/ws/user/{user_id}/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str):
+    # How it works: This is the FastAPI WebSocket endpoint. It maintains an open, high-speed connection with the frontend, receiving the JSON coordinates up to 30 times a second.
     await websocket.accept()
-    print(f"[{user_id}] Connected to AI Telemetry stream.")
+    
+    # Validate session status
+    async with SessionLocal() as db:
+        res = await db.execute(text("SELECT status FROM sessions WHERE id = :sid"), {"sid": session_id})
+        session = res.fetchone()
+        if not session or session[0] != "active":
+            await websocket.close(code=1008, reason="Session is not active")
+            print(f"[{user_id}] Rejected connection to ended/invalid session: {session_id}")
+            return
+            
+    print(f"[{user_id}] Connected to AI Telemetry stream for session {session_id}.")
     
     try:
-        pose_history = []
         last_blink_time = time.time()
-        spoof_detected = False
-        spoof_reason = ""
         
         while True:
+            # The Action: It acts as the traffic controller. For every frame of data it receives, it passes the raw coordinates to the mathematical scoring engines.
             data = await websocket.receive_json()
+            
             attention_score = "No Face Detected"
+            score = 0.0
+            avg_ear = 0.0
+            mar = 0.0
+            pitch = 0.0
+            yaw = 0.0
+            roll = 0.0
+            eyebrow_state = "Neutral"
+            is_moving_lips = False
+            is_yawning = False
+            is_tense = False
+            tension_score = 0
+            smile_type = "None"
+            mood = "Absent"
+            
+            spoof_detected = False
+            spoof_reason = ""
             
             if data and data.get("no_face"):
-                score = 0
                 warning, elapsed = handle_no_face()
                 attention_score = "User Not Found"
-                
-                # Initialize defaults so DB can record the absence
-                avg_ear, mar, pitch, yaw, roll = 0.0, 0.0, 0.0, 0.0, 0.0
-                eyebrow_state = "Neutral"
-                is_moving_lips, is_yawning, is_tense = False, False, False
-                smile_type = "None"
-                mood = "Absent"
+                last_blink_time = time.time()
                 
             elif data and "right_eye" in data:
                 reset_no_face_state()
@@ -84,11 +103,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                     pitch, yaw, roll = calculate_head_pose(matrix)
                 
                 # MOOD IS NOW CALCULATED FIRST SO IT CAN BE PASSED TO THE SCORER
-                eyebrow_state = "Neutral"
-                is_moving_lips, lip_movement_amount = False, 0.0
-                is_yawning, mar = False, 0.0
-                is_smiling, smile_type = False, "None"
-                is_tense, tension_score = False, 0
+                lip_movement_amount = 0.0
+                is_smiling = False
 
                 if data.get('left_eyebrow') and data.get('right_eyebrow'):
                     left_eyebrow = [FakePoint(pt) for pt in data['left_eyebrow']]
@@ -117,19 +133,11 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                     websocket.is_eyes_closed = False
                 
                 # Passive Liveness 1: Blink Timeout
-                if time.time() - last_blink_time > 40:
+                if time.time() - last_blink_time > 50:
                     spoof_detected = True
                     spoof_reason = "No Blink Detected (Static Image)"
                 
-                # Passive Liveness 2: Pose Variance
-                pose_history.append((pitch, yaw, roll))
-                if len(pose_history) > 100:
-                    pose_history.pop(0)
-                    
-                if len(pose_history) == 100:
-                    if np.var([p[0] for p in pose_history]) < 0.0001 and np.var([p[1] for p in pose_history]) < 0.0001 and np.var([p[2] for p in pose_history]) < 0.0001:
-                        spoof_detected = True
-                        spoof_reason = "No Micro-Movements (Static Image)"
+
 
                 if spoof_detected:
                     final_score = 0
@@ -177,7 +185,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                     "yawning": is_yawning,
                     "smile": smile_type,
                     "facial_tension": is_tense,
-                    "tension_score": tension_score if 'tension_score' in locals() else 0,
+                    "tension_score": tension_score,
                     "mood": mood,
                 }
                 if 'emotion_change' in locals() and emotion_change:

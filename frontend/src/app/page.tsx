@@ -14,7 +14,7 @@ export default function LoginScreen() {
     setError("");
 
     try {
-      const response = await fetch(`http://${window.location.hostname}:8000/api/auth/login`, {
+      const response = await fetch(`/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password })
@@ -29,6 +29,7 @@ export default function LoginScreen() {
       // Store JWT token and user info
       sessionStorage.setItem("focusai_token", data.access_token);
       sessionStorage.setItem("focusai_user_id", data.user_id);
+      sessionStorage.setItem("focusai_full_name", data.full_name);
       sessionStorage.setItem("focusai_role", data.role);
       
       if (data.role === "User") {
@@ -55,7 +56,7 @@ export default function LoginScreen() {
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div className="flex flex-col">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Username</label>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">PRN / Username</label>
             <input 
               type="text"
               value={username}

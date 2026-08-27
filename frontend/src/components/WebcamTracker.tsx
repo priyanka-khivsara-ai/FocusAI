@@ -58,9 +58,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
 
     const setupAI = async () => {
       setStatus("Downloading AI Model to Edge...");
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
-      );
+      const vision = await FilesetResolver.forVisionTasks("/wasm");
       
       // Next.js intercepts console.error and blocks the screen.
       // MediaPipe logs its success message (XNNPACK) to console.error by mistake.
@@ -73,7 +71,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
       
       faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
         baseOptions: {
-          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+          modelAssetPath: "/models/face_landmarker.task",
           delegate: "GPU"
         },
         outputFaceBlendshapes: true,
@@ -86,7 +84,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
 
       setStatus("Connecting to Backend Server...");
       const userId = sessionStorage.getItem("focusai_user_id") || "unknown";
-      ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/user/${encodeURIComponent(userId)}/${encodeURIComponent(sessionId)}`);
+      ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/user/${encodeURIComponent(userId)}/${encodeURIComponent(sessionId)}`);
       
       ws.onmessage = (event) => {
         // Handle message (currently unused by frontend)
@@ -94,6 +92,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
       ws.onopen = async () => {
         setStatus("Accessing Camera...");
         try {
+          // How it works: This is the starting point. When a user joins a session, this React component uses navigator.mediaDevices.getUserMedia() to turn on their webcam.
           const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
@@ -114,7 +113,7 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
     };
 
     let lastVideoTime = -1;
-    
+    //  starts running at roughly 30 frames per second Once the webcam is active, a continuous loop
     const predictLoop = () => {
       if (
         videoRef.current && 
@@ -124,12 +123,16 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
       ) {
         lastVideoTime = videoRef.current.currentTime;
         try {
+          // The Magic: Instead of uploading the video, it feeds the live video frames directly into Google's MediaPipe FaceLandmarker running entirely inside the browser via WebAssembly (WASM).
           const results = faceLandmarker.detectForVideo(videoRef.current, performance.now());
           
           if (ws && ws.readyState === WebSocket.OPEN) {
             if (results.faceLandmarks.length > 0) {
-              // Privacy Feature: Send ONLY numerical feature vectors to backend, NOT video!
-              // We extract the 12 eye landmarks needed for EAR, the 4x4 pose matrix, and the 2 Iris centers.
+              // The Output: It extracts a 3D mesh of 478 facial landmarks. It packages the precise X, Y, Z coordinates for the eyes, mouth, and head rotation into a tiny JSON payload and sends it to the backend via WebSockets. The video is immediately discarded and NEVER leaves the browser.
+            //Index 33 is always the outer corner of the right eye.
+            // Index 133 is always the inner corner of the right eye.
+            // Indices 160 & 158 are on the top eyelid.
+            // Indices 153 & 144 are on the bottom eyelid.
               const rightEyeIndices = [33, 160, 158, 133, 153, 144];
               const leftEyeIndices = [362, 385, 387, 263, 373, 380];
 
@@ -142,6 +145,9 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
               const mouthIndices = [61, 291, 0, 17, 13, 14];
               
               const rawLandmarks = results.faceLandmarks[0];
+              // instead of sending video, the frontend packages these specific coordinates into a tiny JSON payload 
+              // It instantly fires this lightweight JSON payload across a high-speed WebSocket connection to the Python backend API  (which is listening in backend/websocket/stream.py).
+              //  30 times a second
               const payload = {
                 right_eye: rightEyeIndices.map(i => rawLandmarks[i]),
                 left_eye: leftEyeIndices.map(i => rawLandmarks[i]),
@@ -178,32 +184,30 @@ export default function WebcamTracker({ sessionId }: { sessionId: string }) {
   }, []);
 
   return (
-    <div className="flex flex-col items-center bg-white p-6 rounded-2xl shadow-xl border border-slate-100 max-w-2xl w-full">
-      <div className="w-full flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold text-slate-800">Edge Tracker</h2>
+    <div className="absolute inset-0 w-full h-full bg-black z-40 overflow-hidden">
+      <video 
+        ref={videoRef} 
+        className="absolute inset-0 w-full h-full object-cover transform -scale-x-100 opacity-90" 
+        playsInline
+        muted
+      />
+      
+      {/* Overlay UI */}
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-black/60 backdrop-blur-xl px-8 py-4 rounded-full border border-white/10 shadow-2xl z-50">
+        <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_15px_rgba(16,185,129,1)]"></div>
+        <div className="flex flex-col">
+          <p className="text-sm font-bold text-white uppercase tracking-widest leading-none">Secure Telemetry Active</p>
+          <p className="text-[10px] text-emerald-400 font-mono mt-1 opacity-80 tracking-widest">SESSION: {sessionId}</p>
+        </div>
       </div>
       
-      <div className="relative w-full aspect-video bg-slate-900 rounded-xl overflow-hidden mb-6 shadow-inner">
-        <video 
-          ref={videoRef} 
-          className="absolute inset-0 w-full h-full object-cover transform -scale-x-100 opacity-80" 
-          playsInline
-          muted
-        />
-        {status && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-slate-900/40 backdrop-blur-sm">
-            <div className="px-4 py-2 bg-slate-800 rounded-lg text-white font-mono text-sm shadow-lg border border-slate-700">
-               {status}
-            </div>
+      {status && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/60 backdrop-blur-md z-50 transition-all duration-500">
+          <div className="px-8 py-5 bg-black/80 rounded-3xl text-white font-mono text-xl shadow-2xl border border-white/10">
+             {status}
           </div>
-        )}
-      </div>
-
-      <div className="w-full bg-slate-50 rounded-xl p-6 border border-slate-200 flex items-center justify-center gap-3">
-        <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
-        <p className="text-sm font-bold text-slate-700 uppercase tracking-wider">Secure Telemetry Active</p>
-      </div>
-      
+        </div>
+      )}
     </div>
   );
 }
